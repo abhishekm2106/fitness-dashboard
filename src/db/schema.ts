@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   serial,
   text,
@@ -92,6 +93,52 @@ export const syncState = pgTable('sync_state', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// --- Sign-in (Auth.js). Sessions are JWT cookies, so there is no sessions table. ---
+
+export const users = pgTable('users', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text('name'),
+  email: text('email').unique(),
+  emailVerified: timestamp('email_verified', { withTimezone: true, mode: 'date' }),
+  image: text('image'),
+});
+
+// one row per linked Google or Apple login
+export const accounts = pgTable(
+  'accounts',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    provider: text('provider').notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
+    refreshToken: text('refresh_token'),
+    accessToken: text('access_token'),
+    expiresAt: integer('expires_at'),
+    tokenType: text('token_type'),
+    scope: text('scope'),
+    idToken: text('id_token'),
+    sessionState: text('session_state'),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] }), index('accounts_user_idx').on(t.userId)],
+);
+
+// pending email sign-in codes; only a hash of the code is stored
+export const verificationTokens = pgTable(
+  'verification_tokens',
+  {
+    identifier: text('identifier').notNull(),
+    token: text('token').notNull(),
+    expires: timestamp('expires', { withTimezone: true, mode: 'date' }).notNull(),
+    // wrong guesses against this email's code; the code is dropped at the limit
+    attempts: integer('attempts').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.identifier, t.token] })],
+);
 
 export const workoutsRelations = relations(workouts, ({ many }) => ({ exercises: many(workoutExercises) }));
 export const workoutExercisesRelations = relations(workoutExercises, ({ one, many }) => ({

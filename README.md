@@ -2,7 +2,7 @@
 
 A personal fitness dashboard that pulls your training data into one database and one page.
 It syncs **Hevy** (workouts, exercises, sets, exercise templates and body measurements), shows it all on one dashboard
-with an animated avatar, and sits behind **Sign in with Google** and **Sign in with Apple**.
+with an animated avatar, and sits behind sign-in with an **email code**, **Google** or **Apple**.
 
 ## Run it
 
@@ -26,13 +26,25 @@ The first sync downloads your whole history. After that, each sync only asks Hev
 ## Sign-in
 
 Every page and API route needs a signed-in user, except `/login` and the sign-in flow itself. Sessions are signed
-cookies (Auth.js, JWT strategy), so sign-in adds no database tables.
+cookies (Auth.js, JWT strategy); the database keeps users, their linked Google/Apple logins and pending email codes.
 
 1. Generate the session secret and put it in `.env.local` as `AUTH_SECRET`:
    `npx auth secret --raw`
 2. List who may sign in: `ALLOWED_EMAILS=you@gmail.com,you@icloud.com`. Locally an empty list lets anyone in;
    in production an empty list lets nobody in.
-3. Set up one or both providers below. A provider's button stays disabled until its two variables are set.
+3. Set up any of the methods below. Google's button stays disabled until its two variables are set; Apple's is hidden behind a flag.
+
+### Email code
+
+Enter your email, get a 6-digit code (and a one-tap link in the same email), type it in. Codes only go to
+addresses on the allowlist, expire after 10 minutes, are replaced by a newer code, and stop working after
+5 wrong guesses. Only a hash of each code is stored.
+
+- **Locally** it works with no setup: the code is printed in the terminal running `npm run dev`.
+- **To send real emails**, create a free [Resend](https://resend.com) account and an API key, and set `AUTH_RESEND_KEY`.
+  Without your own domain, Resend can only send to the email you signed up with, which is fine for a private dashboard.
+  To send from your own address, verify your domain in Resend and set `AUTH_EMAIL_FROM`, e.g. `Master Dashboard <login@yourdomain.com>`.
+- In production, email sign-in is offered only once `AUTH_RESEND_KEY` is set.
 
 ### Google
 
@@ -46,6 +58,9 @@ cookies (Auth.js, JWT strategy), so sign-in adds no database tables.
 
 Needs a paid Apple Developer account. Apple only redirects to HTTPS domains, so Sign in with Apple can't
 be tested on `localhost`; try it on your deployed URL (or an HTTPS tunnel).
+
+The button is behind a feature flag and stays hidden until `ENABLE_APPLE_SIGNIN=true`. Turn it on once the
+steps below are done.
 
 1. **Certificates, Identifiers & Profiles → Identifiers**: create an **App ID** with *Sign in with Apple* enabled.
 2. Create a **Services ID** (this is `AUTH_APPLE_ID`, e.g. `com.yourname.fitness.web`), enable *Sign in with Apple*,
@@ -67,7 +82,7 @@ Migrations live in `./drizzle` and run automatically on first connection. After 
 
 ## Deploying (Vercel + Supabase)
 
-Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAILS` and the provider variables in Vercel.
+Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAILS`, `AUTH_RESEND_KEY` and any Google/Apple variables in Vercel.
 `vercel.json` schedules a daily sync at 05:00 UTC (Vercel's Hobby plan allows one cron run per day).
 `/api/sync` accepts the cron secret, a signed-in session (the **Sync now** button), or `SYNC_SECRET` as the `x-sync-secret` header for scripts.
 
@@ -79,9 +94,12 @@ Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAIL
 | `src/lib/hevy/mock.ts` | Stand-in for the Hevy API, same paths and JSON shapes |
 | `src/lib/sync/hevy.ts` | Full backfill on first run, incremental change feed afterwards |
 | `src/lib/metrics.ts` | Weekly totals, main-lift e1RM trends, PRs, avatar inputs |
-| `src/auth.ts` | Auth.js setup: Google and Apple, the email allowlist, Apple's cross-site cookies |
+| `src/auth.config.ts` | Sign-in settings the middleware can use: Google, Apple, the allowlist, Apple's cross-site cookies |
+| `src/auth.ts` | Adds email codes and database storage on top of `auth.config.ts` |
+| `src/lib/auth/adapter.ts` | Stores users, linked logins and email codes, with the wrong-guess limit |
+| `src/lib/auth/email.ts` | Makes the 6-digit code and sends it through Resend |
 | `src/middleware.ts` | Sends signed-out visitors to `/login`; API routes answer 401 |
-| `src/app/login` | The sign-in page |
+| `src/app/login` | The sign-in page and the code-entry page (`/login/verify`) |
 | `src/app/api/sync` | Runs a sync (Vercel Cron uses GET, the page uses POST) |
 | `src/app/api/dashboard` | Everything the dashboard needs, as JSON |
 | `scripts/sync.ts` | `npm run sync` from the command line |

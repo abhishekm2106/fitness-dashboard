@@ -2,7 +2,6 @@
 
 import { Loader2Icon } from 'lucide-react';
 import { useFormStatus } from 'react-dom';
-import type { ProviderId } from '@/auth';
 import { cn } from '@/lib/utils';
 
 function GoogleLogo() {
@@ -27,8 +26,10 @@ function AppleLogo() {
   );
 }
 
+type Brand = 'google' | 'apple';
+
 // Each brand's own dark-background style: Google's dark button, Apple's white button
-const STYLE: Record<ProviderId, { label: string; logo: React.ReactNode; className: string }> = {
+const STYLE: Record<Brand, { label: string; logo: React.ReactNode; className: string }> = {
   google: {
     label: 'Sign in with Google',
     logo: <GoogleLogo />,
@@ -41,7 +42,7 @@ const STYLE: Record<ProviderId, { label: string; logo: React.ReactNode; classNam
   },
 };
 
-export function ProviderButton({ provider, disabled }: { provider: ProviderId; disabled?: boolean }) {
+export function ProviderButton({ provider, disabled }: { provider: Brand; disabled?: boolean }) {
   const { pending } = useFormStatus();
   const s = STYLE[provider];
   return (
