@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
 import type { DayRow, PrEvent, SourceStatus } from '@/lib/dashboard/types';
 import { cn } from '@/lib/utils';
+import { useSettings } from './settings-context';
 import { Panel, SampleBadge, Sparkline, Swatch, toneClass } from './ui-bits';
 
 const SOURCE_COLOR: Record<SourceStatus['id'], string> = {
@@ -61,6 +62,7 @@ export function KpiGrid({ items }: { items: Kpi[] }) {
 }
 
 export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
+  const { fmt } = useSettings();
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - 90 * 86_400_000).toISOString().slice(0, 10);
   const recent = prs.filter((p) => p.date >= cutoff);
   return (
@@ -71,11 +73,11 @@ export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
             <div className="min-w-0">
               <b className="block text-sm">{LIFT_NAMES[p.lift].name}</b>
               <span className="text-xs text-subtle">
-                {p.weightKg} kg × {p.reps} · e1RM {p.e1rmKg} kg
+                {fmt.lift(p.weightKg)} × {p.reps} · e1RM {fmt.lift(p.e1rmKg)}
               </span>
             </div>
             <div className="flex shrink-0 flex-col items-end text-[11px] text-muted-foreground">
-              <b className="text-[13px] text-good">+{p.gainKg.toFixed(1)} kg</b>
+              <b className="text-[13px] text-good">+{fmt.lift(p.gainKg)}</b>
               {fd(p.date)} · Hevy
             </div>
           </li>
@@ -89,15 +91,19 @@ export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
 const LEVELS = ['var(--track)', '#184f95', '#256abf', '#3987e5', '#6da7ec'];
 const level = (m: number) => (m === 0 ? 0 : m < 40 ? 1 : m < 65 ? 2 : m < 90 ? 3 : 4);
 
+const ROWS = { mon: ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'], sun: ['Sun', '', 'Tue', '', 'Thu', '', 'Sat'] };
+
 export function ConsistencyCard({ weeks }: { weeks: WeekBlock[] }) {
+  const { settings } = useSettings();
+  const target = settings.goals.weeklySessions;
   const total = weeks.reduce((s, w) => s + w.sessions, 0);
   let streak = 0;
-  for (let q = weeks.length - 2; q >= 0 && weeks[q].sessions >= 4; q--) streak++;
+  for (let q = weeks.length - 2; q >= 0 && weeks[q].sessions >= target; q--) streak++;
   return (
-    <Panel title="Consistency" subtitle={`${total} sessions in 12 weeks · ${streak}-week streak at 4+ sessions`} className="col-span-12 xl:col-span-5">
+    <Panel title="Consistency" subtitle={`${total} sessions in 12 weeks · ${streak}-week streak at ${target}+ sessions`} className="col-span-12 xl:col-span-5">
       <div className="flex gap-1">
         <div className="flex w-[30px] shrink-0 flex-col gap-1 text-[11px] leading-[22px] text-muted-foreground">
-          {['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (
+          {ROWS[settings.display.weekStart].map((d, i) => (
             <span key={i} className="h-[22px]">
               {d}
             </span>
@@ -137,13 +143,14 @@ export function ConsistencyCard({ weeks }: { weeks: WeekBlock[] }) {
 }
 
 export function NutritionCard({ days, range }: { days: DayRow[]; range: number }) {
+  const { goals } = useSettings().settings;
   const y = days[days.length - 2];
   const past = days.slice(days.length - range);
   const rows: [string, number, number, string][] = [
-    ['Calories', y.kcal, 2400, ' kcal'],
-    ['Protein', y.protein, 160, ' g'],
-    ['Carbs', y.carbs, 260, ' g'],
-    ['Fat', y.fat, 75, ' g'],
+    ['Calories', y.kcal, goals.calories, ' kcal'],
+    ['Protein', y.protein, goals.protein, ' g'],
+    ['Carbs', y.carbs, goals.carbs, ' g'],
+    ['Fat', y.fat, goals.fat, ' g'],
   ];
   return (
     <Panel title="Nutrition" subtitle="Yesterday" sample="your nutrition app" className="col-span-12 xl:col-span-4">
@@ -158,7 +165,7 @@ export function NutritionCard({ days, range }: { days: DayRow[]; range: number }
               </span>
             </div>
             <div role="img" aria-label={`${label} ${fmtInt(v)} of ${fmtInt(goal)}${unit}`} className="mt-2 h-2 overflow-hidden rounded bg-track">
-              <div className="h-full rounded bg-body" style={{ width: `${Math.min(100, (v / goal) * 100)}%` }} />
+              <div className="h-full rounded bg-body" style={{ width: `${goal ? Math.min(100, (v / goal) * 100) : 100}%` }} />
             </div>
           </div>
         ))}
@@ -171,7 +178,7 @@ export function NutritionCard({ days, range }: { days: DayRow[]; range: number }
         <div>
           <div className="text-xs text-muted-foreground">Protein goal hit</div>
           <div className="font-display text-xl font-bold">
-            {past.filter((d) => d.protein >= 150).length} of {range} days
+            {past.filter((d) => d.protein >= goals.protein).length} of {range} days
           </div>
         </div>
       </div>

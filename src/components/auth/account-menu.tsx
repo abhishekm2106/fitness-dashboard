@@ -1,4 +1,5 @@
-import { LogOutIcon } from 'lucide-react';
+import { LogOutIcon, SettingsIcon } from 'lucide-react';
+import Link from 'next/link';
 import { signOut } from '@/auth';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -20,6 +21,16 @@ export function AccountMenu({ user }: { user: User }) {
       <span className="max-w-[160px] truncate text-sm font-medium" title={user.email ?? undefined}>
         {label}
       </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button asChild variant="ghost" size="icon-sm">
+            <Link href="/settings" aria-label="Settings">
+              <SettingsIcon aria-hidden />
+            </Link>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Settings</TooltipContent>
+      </Tooltip>
       <form
         action={async () => {
           'use server';

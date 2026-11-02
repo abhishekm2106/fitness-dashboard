@@ -3,28 +3,33 @@
 import { useMemo, useState } from 'react';
 import { feed, kpis, weekBlocks, weekSummary, weightAvg } from '@/lib/dashboard/compute';
 import type { DashboardPayload } from '@/lib/dashboard/types';
+import { makeFmt, type Settings } from '@/lib/settings';
 import { AvatarCard } from './avatar';
 import { ActivityCard, ConsistencyCard, KpiGrid, NutritionCard, PrCard, SourcesRow, WeekCard } from './cards';
 import { BodyWeightCard, RecoveryCard, StrengthCard, WeeklyTimeCard } from './charts';
+import { SettingsProvider } from './settings-context';
 import { SyncButton } from './sync-button';
 import { Segmented } from './ui-bits';
 
 type Range = '7' | '30' | '90';
 
-export function Dashboard({ data, account }: { data: DashboardPayload; account?: React.ReactNode }) {
-  const [rangeKey, setRangeKey] = useState<Range>('30');
+export function Dashboard({ data, settings, account }: { data: DashboardPayload; settings: Settings; account?: React.ReactNode }) {
+  const [rangeKey, setRangeKey] = useState<Range>(String(settings.display.defaultRange) as Range);
   const range = Number(rangeKey);
   const { days } = data;
+  const { goals } = settings;
+  const fmt = useMemo(() => makeFmt(settings.units), [settings.units]);
 
-  const tiles = useMemo(() => kpis(days, range), [days, range]);
-  const weeks = useMemo(() => weekBlocks(days), [days]);
-  const week = useMemo(() => weekSummary(days, data.prs), [days, data.prs]);
-  const items = useMemo(() => feed(days), [days]);
+  const tiles = useMemo(() => kpis(days, range, fmt, goals), [days, range, fmt, goals]);
+  const weeks = useMemo(() => weekBlocks(days, settings.display.weekStart, fmt), [days, settings.display.weekStart, fmt]);
+  const week = useMemo(() => weekSummary(days, data.prs, fmt, goals), [days, data.prs, fmt, goals]);
+  const items = useMemo(() => feed(days, fmt), [days, fmt]);
 
   const latestWeight = weightAvg(days, days.length - 1);
   const today = new Date(`${data.today}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
   return (
+    <SettingsProvider settings={settings}>
     <main className="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 pt-7 pb-14 sm:px-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -74,7 +79,7 @@ export function Dashboard({ data, account }: { data: DashboardPayload; account?:
             bodyFat={data.avatar.bodyFatPercent}
             week={week}
             stats={[
-              { label: 'Weight', value: latestWeight != null ? `${latestWeight.toFixed(1)} kg` : '–' },
+              { label: 'Weight', value: latestWeight != null ? fmt.body(latestWeight) : '–' },
               { label: 'Body fat', value: data.avatar.bodyFatPercent != null ? `${data.avatar.bodyFatPercent.toFixed(1)}%` : '–' },
               { label: 'Bench / BW', value: data.avatar.benchToBodyweight != null ? `${data.avatar.benchToBodyweight.toFixed(2)}×` : '–' },
             ]}
@@ -83,5 +88,6 @@ export function Dashboard({ data, account }: { data: DashboardPayload; account?:
         </aside>
       </div>
     </main>
+    </SettingsProvider>
   );
 }

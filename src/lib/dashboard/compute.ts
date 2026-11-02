@@ -1,3 +1,4 @@
+import type { Fmt, Goals, WeekStart } from '@/lib/settings';
 import type { DayRow, Lift, LiftPoint, PrEvent } from './types';
 
 export const DAY = 86_400_000;
@@ -65,7 +66,7 @@ export interface Kpi {
   sample: boolean;
 }
 
-export function kpis(days: DayRow[], range: number): Kpi[] {
+export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals): Kpi[] {
   const n = days.length;
   const cur = days.slice(n - range);
   const prev = days.slice(n - 2 * range, n - range);
@@ -89,20 +90,20 @@ export function kpis(days: DayRow[], range: number): Kpi[] {
     {
       label: 'Lifting volume',
       color: 'var(--chart-1)',
-      value: `${(sum(cur, vol) / 1000).toFixed(1)} t`,
+      value: fmt.volume(sum(cur, vol)),
       delta: delta(pct(sum(cur, vol), sum(prev, vol)), 0, true, (v) => `${v.toFixed(0)}%`),
       vs,
-      sub: 'Total kg lifted across working sets',
+      sub: `Total ${fmt.weightUnit} lifted across working sets`,
       spark: cum(cur, vol),
       sample: false,
     },
     {
       label: 'Running distance',
       color: 'var(--chart-2)',
-      value: `${kmCur.toFixed(1)} km`,
+      value: fmt.dist(kmCur),
       delta: delta(pct(kmCur, sum(prev, km)), 0, true, (v) => `${v.toFixed(0)}%`),
       vs,
-      sub: `Avg pace ${kmCur ? pace(minCur / kmCur) : '–'} /km`,
+      sub: `Avg pace ${kmCur ? fmt.pace(minCur / kmCur) : `– /${fmt.distanceUnit}`}`,
       spark: cum(cur, km),
       sample: true,
     },
@@ -112,7 +113,7 @@ export function kpis(days: DayRow[], range: number): Kpi[] {
       value: hm(avg(cur, (d) => d.sleepH)),
       delta: delta(avg(cur, (d) => d.sleepH) * 60, avg(prev, (d) => d.sleepH) * 60, true, (v) => `${Math.round(v)} min`),
       vs,
-      sub: `${cur.filter((d) => d.sleepH >= 7).length} of ${range} nights over 7h`,
+      sub: `${cur.filter((d) => d.sleepH >= goals.sleepHours).length} of ${range} nights at your ${goals.sleepHours}h goal`,
       spark: cur.map((d) => d.sleepH),
       sample: true,
     },
@@ -129,8 +130,8 @@ export function kpis(days: DayRow[], range: number): Kpi[] {
     {
       label: 'Body weight',
       color: 'var(--chart-4)',
-      value: wNow != null ? `${wNow.toFixed(1)} kg` : '–',
-      delta: wNow != null && wThen != null ? delta(wNow, wThen, false, (v) => `${v.toFixed(1)} kg`) : { text: 'No weigh-ins', tone: 'flat' },
+      value: wNow != null ? fmt.body(wNow) : '–',
+      delta: wNow != null && wThen != null ? delta(fmt.bodyNum(wNow), fmt.bodyNum(wThen), false, (v) => `${v.toFixed(1)} ${fmt.weightUnit}`) : { text: 'No weigh-ins', tone: 'flat' },
       vs: `over ${range} days`,
       sub: '7-day average · from Hevy',
       spark: weights.some((w) => w) ? weights.map((w) => w || weights.find(Boolean) || 0) : [0, 0],
@@ -161,14 +162,14 @@ export interface WeekBlock {
   sessions: number;
   cells: { date: string; minutes: number; tip: string; future: boolean }[];
 }
-/** The last 12 Monday-to-Sunday weeks. */
-export function weekBlocks(days: DayRow[]): WeekBlock[] {
+/** The last 12 weeks, starting on Monday or Sunday. */
+export function weekBlocks(days: DayRow[], weekStart: WeekStart, fmt: Fmt): WeekBlock[] {
   const n = days.length;
   const last = toDate(days[n - 1].date).getUTCDay();
-  const monday = n - 1 - ((last + 6) % 7);
+  const first = n - 1 - (weekStart === 'mon' ? (last + 6) % 7 : last);
   const out: WeekBlock[] = [];
   for (let k = 11; k >= 0; k--) {
-    const ws = monday - 7 * k;
+    const ws = first - 7 * k;
     const block: WeekBlock = { weekStart: days[Math.max(0, ws)].date, label: fd(days[Math.max(0, ws)].date), strengthMin: 0, cardioMin: 0, sessions: 0, cells: [] };
     for (let j = 0; j < 7; j++) {
       const d = days[ws + j];
@@ -181,7 +182,7 @@ export function weekBlocks(days: DayRow[]): WeekBlock[] {
       block.strengthMin += s;
       block.cardioMin += c;
       block.sessions += (d.strength ? 1 : 0) + (d.cardio ? 1 : 0);
-      const parts = [d.strength && `${d.strength.title} · ${s} min`, d.cardio && `${d.cardio.long ? 'Long run' : 'Run'} ${d.cardio.km} km · ${c} min (sample)`].filter(Boolean);
+      const parts = [d.strength && `${d.strength.title} · ${s} min`, d.cardio && `${d.cardio.long ? 'Long run' : 'Run'} ${fmt.dist(d.cardio.km)} · ${c} min (sample)`].filter(Boolean);
       block.cells.push({ date: d.date, minutes: s + c, tip: `${fdw(d.date)}\n${parts.length ? parts.join('\n') : 'Rest day'}`, future: false });
     }
     out.push(block);
@@ -199,7 +200,7 @@ export interface WeekSummary {
   closing: string;
   why: Record<'idle' | 'run' | 'curl' | 'flex' | 'thumbs' | 'rest', string>;
 }
-export function weekSummary(days: DayRow[], prs: PrEvent[]): WeekSummary {
+export function weekSummary(days: DayRow[], prs: PrEvent[], fmt: Fmt, goals: Goals): WeekSummary {
   const n = days.length;
   const w7 = days.slice(n - 7);
   const p7 = days.slice(n - 14, n - 7);
@@ -210,32 +211,33 @@ export function weekSummary(days: DayRow[], prs: PrEvent[]): WeekSummary {
   const volume = sum(w7, vol);
   const volPrev = sum(p7, vol);
   const sleep = avg(w7, (d) => d.sleepH);
-  const proteinDays = w7.filter((d) => d.protein >= 150).length;
+  const proteinDays = w7.filter((d) => d.protein >= goals.protein).length;
   const pr7 = prs.filter((p) => p.date >= w7[0].date);
   const wNow = weightAvg(days, n - 1);
   const wPrev = weightAvg(days, n - 8);
-  const score = Math.round(Math.min(40, (ses / 5) * 40) + Math.min(25, (sleep / 8) * 25) + (proteinDays / 7) * 20 + (pr7.length ? 15 : volume >= volPrev ? 10 : 5));
+  // sessions and sleep score full marks at your goals
+  const score = Math.round(Math.min(40, (ses / goals.weeklySessions) * 40) + Math.min(25, (sleep / goals.sleepHours) * 25) + (proteinDays / 7) * 20 + (pr7.length ? 15 : volume >= volPrev ? 10 : 5));
 
   const wins: string[] = [];
   if (pr7.length) {
     const p = pr7[0];
-    wins.push(`New ${LIFT_NAMES[p.lift].name.toLowerCase()} PR: ${p.e1rmKg} kg estimated 1RM (+${p.gainKg.toFixed(1)} kg). Real strength, earned.`);
+    wins.push(`New ${LIFT_NAMES[p.lift].name.toLowerCase()} PR: ${fmt.lift(p.e1rmKg)} estimated 1RM (+${fmt.lift(p.gainKg)}). Real strength, earned.`);
   }
   if (volume > 0) {
     const vp = Math.round(Math.abs(pct(volume, volPrev)));
-    wins.push(`Moved ${(volume / 1000).toFixed(1)} t of total volume${!volPrev ? '.' : volume >= volPrev ? `, up ${vp}% on last week.` : `, ${vp}% under last week. Fine if it was a deload.`}`);
+    wins.push(`Moved ${fmt.volume(volume)} of total volume${!volPrev ? '.' : volume >= volPrev ? `, up ${vp}% on last week.` : `, ${vp}% under last week. Fine if it was a deload.`}`);
   }
-  if (kms > 0) wins.push(`Ran ${kms.toFixed(1)} km across ${runs} ${runs === 1 ? 'run' : 'runs'}. Your engine is getting stronger.`);
-  if (wNow != null && wPrev != null && wNow < wPrev) wins.push(`Down ${(wPrev - wNow).toFixed(1)} kg on your 7-day average, and your lifts are still climbing.`);
+  if (kms > 0) wins.push(`Ran ${fmt.dist(kms)} across ${runs} ${runs === 1 ? 'run' : 'runs'}. Your engine is getting stronger.`);
+  if (wNow != null && wPrev != null && wNow < wPrev) wins.push(`Down ${fmt.body(wPrev - wNow)} on your 7-day average, and your lifts are still climbing.`);
 
   const focus =
-    sleep < 7.5
-      ? `Sleep averaged ${hm(sleep)}. Get to 7.5 h or more and your next heavy session will feel lighter.`
+    sleep < goals.sleepHours - 0.5
+      ? `Sleep averaged ${hm(sleep)}. Get closer to your ${goals.sleepHours}h goal and your next heavy session will feel lighter.`
       : proteinDays < 5
-        ? `You hit your protein goal on ${proteinDays} of 7 days. Aim for 160 g every day so the cut takes fat, not muscle.`
-        : ses < 4
-          ? 'Put 4 sessions in your calendar for next week and treat them like meetings.'
-          : 'Keep the rhythm. Add one rep or 2.5 kg to your top set on each main lift.';
+        ? `You hit your protein goal on ${proteinDays} of 7 days. Aim for ${goals.protein} g every day so the cut takes fat, not muscle.`
+        : ses < goals.weeklySessions
+          ? `Put ${goals.weeklySessions} sessions in your calendar for next week and treat them like meetings.`
+          : `Keep the rhythm. Add one rep or ${fmt.plate} to your top set on each main lift.`;
 
   const bfNow = days[n - 1].bodyFat;
   const bfThen = days[n - 29]?.bodyFat ?? null;
@@ -259,8 +261,8 @@ export function weekSummary(days: DayRow[], prs: PrEvent[]): WeekSummary {
     closing,
     why: {
       idle: `Effort score ${score}`,
-      run: `${runs} ${runs === 1 ? 'run' : 'runs'} · ${kms.toFixed(1)} km this week`,
-      curl: `${lifts} lifting sessions · ${(volume / 1000).toFixed(1)} t this week`,
+      run: `${runs} ${runs === 1 ? 'run' : 'runs'} · ${fmt.dist(kms)} this week`,
+      curl: `${lifts} lifting sessions · ${fmt.volume(volume)} this week`,
       flex: pr7.length ? `${pr7.length} new PR${pr7.length > 1 ? 's' : ''} this week` : `Effort score ${score}`,
       thumbs: `Effort score ${score} this week`,
       rest: `Only ${ses} sessions this week`,
@@ -277,7 +279,7 @@ export interface FeedItem {
   detail: string;
   when: string;
 }
-export function feed(days: DayRow[]): FeedItem[] {
+export function feed(days: DayRow[], fmt: Fmt): FeedItem[] {
   const n = days.length;
   const items: FeedItem[] = [];
   const when = (i: number) => (i === n - 1 ? 'Today' : i === n - 2 ? 'Yesterday' : fdw(days[i].date));
@@ -285,11 +287,11 @@ export function feed(days: DayRow[]): FeedItem[] {
     const d = days[i];
     if (d.strength) {
       const s = d.strength;
-      const top = s.topSet ? ` · ${LIFT_NAMES[s.topSet.lift].short} ${s.topSet.weightKg} kg × ${s.topSet.reps}` : '';
-      items.push({ key: `w-${d.date}`, color: 'var(--chart-1)', source: 'Hevy', sample: false, title: `${s.title} · ${s.exercises} exercises`, detail: `${fmtInt(s.volumeKg)} kg volume · ${s.minutes} min${top}`, when: when(i) });
+      const top = s.topSet ? ` · ${LIFT_NAMES[s.topSet.lift].short} ${fmt.lift(s.topSet.weightKg)} × ${s.topSet.reps}` : '';
+      items.push({ key: `w-${d.date}`, color: 'var(--chart-1)', source: 'Hevy', sample: false, title: `${s.title} · ${s.exercises} exercises`, detail: `${fmt.volume(s.volumeKg)} volume · ${s.minutes} min${top}`, when: when(i) });
     }
     if (d.cardio) {
-      items.push({ key: `r-${d.date}`, color: 'var(--chart-2)', source: 'Strava', sample: true, title: `${d.cardio.long ? 'Long run' : 'Run'} · ${d.cardio.km} km`, detail: `${d.cardio.minutes} min · ${pace(d.cardio.paceMinPerKm)} /km`, when: when(i) });
+      items.push({ key: `r-${d.date}`, color: 'var(--chart-2)', source: 'Strava', sample: true, title: `${d.cardio.long ? 'Long run' : 'Run'} · ${fmt.dist(d.cardio.km)}`, detail: `${d.cardio.minutes} min · ${fmt.pace(d.cardio.paceMinPerKm)}`, when: when(i) });
     }
     items.push({ key: `s-${d.date}`, color: 'var(--chart-3)', source: 'Oura', sample: true, title: `Slept ${hm(d.sleepH)}`, detail: `Overnight HRV ${d.hrv} ms`, when: when(i) });
   }

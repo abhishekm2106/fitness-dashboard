@@ -140,6 +140,15 @@ export const verificationTokens = pgTable(
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );
 
+// goals, units and display choices, validated by parseSettings in src/lib/settings.ts
+export const userSettings = pgTable('user_settings', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  data: jsonb('data').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const workoutsRelations = relations(workouts, ({ many }) => ({ exercises: many(workoutExercises) }));
 export const workoutExercisesRelations = relations(workoutExercises, ({ one, many }) => ({
   workout: one(workouts, { fields: [workoutExercises.workoutId], references: [workouts.id] }),
