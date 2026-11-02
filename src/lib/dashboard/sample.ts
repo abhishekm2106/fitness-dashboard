@@ -1,4 +1,4 @@
-// Stand-in data for sources that aren't connected yet (Strava runs, Oura sleep/HRV, nutrition).
+// Stand-in data for sources that aren't connected yet (runs, sleep/HRV, steps, nutrition).
 // Seeded by date, so a given day always shows the same numbers. Every card that uses it says so.
 import type { CardioDay } from './types';
 
@@ -16,6 +16,7 @@ export interface SampleDay {
   cardio: CardioDay | null;
   sleepH: number;
   hrv: number;
+  steps: number;
   kcal: number;
   protein: number;
   carbs: number;
@@ -45,6 +46,7 @@ export function sampleDay(date: string, progress: number, trainedToday: boolean)
     cardio,
     sleepH: Math.min(8.8, Math.max(5.6, 6.85 + 0.45 * progress + noise() * 0.55 - (dow === 6 ? 0.35 : 0))),
     hrv: Math.round(47 + 10 * progress + noise() * 5 - (hard ? 3 : 0)),
+    steps: Math.round(7600 + 1400 * progress + (cardio ? 5200 : 0) + noise() * 1500 - (dow === 0 ? 1800 : 0)),
     kcal: Math.round(2230 + (trainedToday ? 160 : 0) + (cardio ? 120 : 0) + noise() * 230),
     protein: Math.round(142 + 12 * progress + noise() * 16),
     carbs: Math.round(230 + noise() * 40 + (trainedToday ? 25 : 0)),

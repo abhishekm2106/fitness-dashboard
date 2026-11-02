@@ -1,5 +1,6 @@
 import { ClockIcon, DatabaseIcon, InfoIcon, PlugIcon } from 'lucide-react';
 import { SyncButton } from '@/components/dashboard/sync-button';
+import { AppleHealthCard, type AppleHealthStatus } from '@/components/settings/apple-health-card';
 import { SourceLogo } from '@/components/sources/source-logo';
 import { Card } from '@/components/ui/card';
 import { SOURCES, type SourceInfo } from '@/lib/sources';
@@ -112,11 +113,23 @@ function UpcomingCard({ info }: { info: SourceInfo }) {
   );
 }
 
-export function DataSources({ sync, workouts }: { sync: { at: string; mock: boolean } | null; workouts: number }) {
-  const [hevy, ...rest] = SOURCES;
+export function DataSources({
+  sync,
+  workouts,
+  appleHealth,
+  endpoint,
+}: {
+  sync: { at: string; mock: boolean } | null;
+  workouts: number;
+  appleHealth: AppleHealthStatus | null;
+  endpoint: string;
+}) {
+  const hevy = SOURCES.find((s) => s.id === 'hevy')!;
+  const rest = SOURCES.filter((s) => s.id !== 'hevy' && s.id !== 'apple-health');
   return (
     <div className="flex flex-col gap-5">
       <HevyCard info={hevy} sync={sync} workouts={workouts} />
+      <AppleHealthCard status={appleHealth} endpoint={endpoint} />
       <div>
         <h3 className="mb-3 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Coming next</h3>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -129,4 +142,6 @@ export function DataSources({ sync, workouts }: { sync: { at: string; mock: bool
   );
 }
 
-export const connectedCount = (sync: { mock: boolean } | null) => (sync && !sync.mock ? 1 : 0);
+// Hevy counts once it syncs your real account; Apple Health once a delivery has arrived
+export const connectedCount = (sync: { mock: boolean } | null, appleHealth: AppleHealthStatus | null) =>
+  (sync && !sync.mock ? 1 : 0) + (appleHealth?.lastReceivedAt ? 1 : 0);

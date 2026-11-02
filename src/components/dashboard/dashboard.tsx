@@ -20,10 +20,10 @@ export function Dashboard({ data, settings, account }: { data: DashboardPayload;
   const { goals } = settings;
   const fmt = useMemo(() => makeFmt(settings.units), [settings.units]);
 
-  const tiles = useMemo(() => kpis(days, range, fmt, goals), [days, range, fmt, goals]);
+  const tiles = useMemo(() => kpis(days, range, fmt, goals, data.live), [days, range, fmt, goals, data.live]);
   const weeks = useMemo(() => weekBlocks(days, settings.display.weekStart, fmt), [days, settings.display.weekStart, fmt]);
   const week = useMemo(() => weekSummary(days, data.prs, fmt, goals), [days, data.prs, fmt, goals]);
-  const items = useMemo(() => feed(days, fmt), [days, fmt]);
+  const items = useMemo(() => feed(days, fmt, data.live), [days, fmt, data.live]);
 
   const latestWeight = weightAvg(days, days.length - 1);
   const today = new Date(`${data.today}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -67,8 +67,8 @@ export function Dashboard({ data, settings, account }: { data: DashboardPayload;
             <PrCard prs={data.prs} today={data.today} />
             <WeeklyTimeCard weeks={weeks} />
             <ConsistencyCard weeks={weeks} />
-            <RecoveryCard days={days} range={range} />
-            <NutritionCard days={days} range={range} />
+            <RecoveryCard days={days} range={range} live={data.live} />
+            <NutritionCard days={days} range={range} live={data.live} />
             <BodyWeightCard days={days} range={range} />
             <ActivityCard items={items} />
           </div>

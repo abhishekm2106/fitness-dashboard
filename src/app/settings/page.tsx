@@ -1,5 +1,6 @@
 import { ArrowLeftIcon, CheckIcon, CircleDashedIcon, LogOutIcon } from 'lucide-react';
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { appleEnabled, auth, configured, signOut } from '@/auth';
@@ -12,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getDb } from '@/db';
 import { getProfile } from '@/lib/account';
+import { getConnection } from '@/lib/apple-health/store';
 import { getSettings } from '@/lib/settings-store';
 import { SOURCES } from '@/lib/sources';
 import { lastSync, workoutCount } from '@/lib/sync/hevy';
@@ -63,13 +65,29 @@ export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user) redirect('/login?callbackUrl=/settings');
   const db = await getDb();
-  const [settings, profile, sync, workouts] = await Promise.all([getSettings(session.user.id), getProfile(session.user.id), lastSync(db), workoutCount(db)]);
+  const [settings, profile, sync, workouts, health, h] = await Promise.all([
+    getSettings(session.user.id),
+    getProfile(session.user.id),
+    lastSync(db),
+    workoutCount(db),
+    getConnection(session.user.id),
+    headers(),
+  ]);
+  // the address the phone should post to, as this server is reached right now
+  const endpoint = `${h.get('x-forwarded-proto') ?? 'http'}://${h.get('x-forwarded-host') ?? h.get('host')}/api/ingest/apple-health`;
+  const appleHealth = health && {
+    connectedAt: health.connectedAt.toISOString(),
+    lastReceivedAt: health.lastReceivedAt?.toISOString() ?? null,
+    summary: health.lastSummary,
+    lastError: health.lastError,
+    secretHint: health.secretHint,
+  };
 
   const name = profile?.name ?? session.user.name ?? '';
   const email = profile?.email ?? session.user.email ?? '';
   const image = profile?.image ?? session.user.image;
   const linked = new Set(profile?.providers ?? []);
-  const connected = connectedCount(sync);
+  const connected = connectedCount(sync, appleHealth);
   const count = `${connected} of ${SOURCES.length} connected`;
   const methods = [
     { id: 'google' as const, name: 'Google', show: configured.google || linked.has('google') },
@@ -109,7 +127,7 @@ export default async function SettingsPage() {
             {...SECTIONS[0]}
             badge={<span className="rounded-full border border-white/10 px-2.5 py-0.5 font-sans text-xs font-semibold text-subtle">{count}</span>}
           >
-            <DataSources sync={sync} workouts={workouts} />
+            <DataSources sync={sync} workouts={workouts} appleHealth={appleHealth} endpoint={endpoint} />
           </Section>
 
           <Section {...SECTIONS[1]}>

@@ -73,6 +73,24 @@ steps below are done.
 If you choose **Hide My Email** when signing in with Apple, Apple gives the app a `@privaterelay.appleid.com`
 address. Add that address to `ALLOWED_EMAILS`, or share your real email instead.
 
+## Connect Apple Health
+
+Apple Health has no web API, so your iPhone sends the data, using the **Health Auto Export** app (automations need its premium unlock).
+
+1. In the dashboard, open **Settings → Data sources → Apple Health** and press **Connect**. Copy the endpoint and the
+   `Authorization: Bearer mdah_…` header; the token is shown once (use **New token** to replace it).
+2. In Health Auto Export, add a **REST API** automation with that URL and header. Data Type **Health Metrics**,
+   Export Format **JSON**, **Summarize Data** on, Time Grouping **Days**, Date Range **Previous 7 Days**, **Batch Requests** on,
+   Sync Frequency **1 hour**. Pick sleep, HRV, resting heart rate, steps, active energy, weight, body fat, dietary energy,
+   protein, carbohydrates and total fat. Use **Manual Upload** once for older history.
+3. The phone must reach the dashboard over HTTPS, so this works on the deployed site (or through a tunnel), not on `localhost`.
+
+Each delivery replaces the stored value for every day it contains, so resending the same days never double-counts.
+Once a metric arrives, the dashboard shows it instead of sample data: sleep and HRV in Recovery, steps, smart-scale
+weigh-ins (merged with Hevy's) and nutrition from apps that write to Health, like MyFitnessPal or Cronometer.
+The Settings card shows the last delivery, which metrics arrived, any names it didn't recognise, and the last error.
+**Disconnect** revokes the token and deletes the imported data.
+
 ## Database
 
 - No `DATABASE_URL`: an embedded Postgres (PGlite) stored in `./.data`. Zero setup, ideal for local work.
@@ -100,6 +118,8 @@ Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAIL
 | `src/lib/auth/email.ts` | Makes the 6-digit code and sends it through Resend |
 | `src/middleware.ts` | Sends signed-out visitors to `/login`; API routes answer 401 |
 | `src/app/login` | The sign-in page and the code-entry page (`/login/verify`) |
+| `src/app/api/ingest/apple-health` | Receives Health Auto Export deliveries, authorised by a per-user token |
+| `src/lib/apple-health` | Parses deliveries into daily values and stores them |
 | `src/app/api/sync` | Runs a sync (Vercel Cron uses GET, the page uses POST) |
 | `src/app/api/dashboard` | Everything the dashboard needs, as JSON |
 | `scripts/sync.ts` | `npm run sync` from the command line |

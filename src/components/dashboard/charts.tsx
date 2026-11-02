@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { fd, hm, LIFT_NAMES, strengthView, weightAvg, type WeekBlock } from '@/lib/dashboard/compute';
-import type { DayRow, Lift, LiftPoint } from '@/lib/dashboard/types';
+import type { DayRow, Lift, LiftPoint, Live } from '@/lib/dashboard/types';
 import { useSettings } from './settings-context';
 import { Panel, Segmented } from './ui-bits';
 
@@ -82,19 +82,28 @@ export function WeeklyTimeCard({ weeks }: { weeks: WeekBlock[] }) {
   );
 }
 
-export function RecoveryCard({ days, range }: { days: DayRow[]; range: number }) {
+export function RecoveryCard({ days, range, live }: { days: DayRow[]; range: number; live: Live }) {
   const sleepGoal = useSettings().settings.goals.sleepHours;
-  const cur = days.slice(days.length - range).map((d) => ({ label: fd(d.date), sleep: Math.round(d.sleepH * 10) / 10, hrv: d.hrv }));
-  const goal = cur.filter((d) => d.sleep >= sleepGoal).length;
-  const avgHrv = Math.round(cur.reduce((s, d) => s + d.hrv, 0) / cur.length);
+  // missing nights stay null, so they show as gaps rather than zeros
+  const cur = days.slice(days.length - range).map((d) => ({ label: fd(d.date), sleep: d.sleepH != null ? Math.round(d.sleepH * 10) / 10 : null, hrv: d.hrv != null ? Math.round(d.hrv) : null }));
+  const nights = cur.filter((d) => d.sleep != null);
+  const goal = nights.filter((d) => d.sleep! >= sleepGoal).length;
+  const hrvs = cur.flatMap((d) => (d.hrv != null ? [d.hrv] : []));
+  const avgHrv = hrvs.length ? Math.round(hrvs.reduce((s, x) => s + x, 0) / hrvs.length) : null;
+  const real = live.sleep || live.hrv;
   return (
-    <Panel title="Recovery" subtitle={`From Oura · last ${range} days`} sample="Oura" className="col-span-12 xl:col-span-8">
+    <Panel
+      title="Recovery"
+      subtitle={`${real ? 'From Apple Health' : 'Sample data'} · last ${range} days`}
+      sample={real ? undefined : 'Apple Health'}
+      className="col-span-12 xl:col-span-8"
+    >
       <div className="grid gap-7 md:grid-cols-2">
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-2 text-[13px]">
             <h3 className="font-semibold text-subtle">Sleep per night</h3>
             <span className="text-xs text-muted-foreground">
-              {goal} of {range} nights at {sleepGoal}h+
+              {goal} of {nights.length} nights at {sleepGoal}h+
             </span>
           </div>
           <ChartContainer config={{ sleep: { label: 'Sleep', color: 'var(--chart-3)' } }} className="mt-3 aspect-auto h-[190px] w-full">
@@ -111,7 +120,7 @@ export function RecoveryCard({ days, range }: { days: DayRow[]; range: number })
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-2 text-[13px]">
             <h3 className="font-semibold text-subtle">Overnight HRV</h3>
-            <span className="text-xs text-muted-foreground">avg {avgHrv} ms</span>
+            <span className="text-xs text-muted-foreground">{avgHrv != null ? `avg ${avgHrv} ms` : 'No HRV yet'}</span>
           </div>
           <ChartContainer config={{ hrv: { label: 'HRV', color: 'var(--chart-3)' } }} className="mt-3 aspect-auto h-[190px] w-full">
             <LineChart data={cur} margin={{ left: 0, right: 8, top: 12 }}>
@@ -143,7 +152,7 @@ export function BodyWeightCard({ days, range }: { days: DayRow[]; range: number 
   return (
     <Panel
       title="Body weight"
-      subtitle={`7-day average · from Hevy · last ${range} days`}
+      subtitle={`7-day average · Hevy and Apple Health · last ${range} days`}
       className="col-span-12 xl:col-span-5"
       action={
         now != null && (

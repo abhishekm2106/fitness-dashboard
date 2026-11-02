@@ -2,8 +2,8 @@
 
 import { CheckIcon, CircleDashedIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
-import type { DayRow, PrEvent, SourceStatus } from '@/lib/dashboard/types';
+import { avgOf, fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
+import type { DayRow, Live, PrEvent, SourceStatus } from '@/lib/dashboard/types';
 import { cn } from '@/lib/utils';
 import { useSettings } from './settings-context';
 import { Panel, SampleBadge, Sparkline, Swatch, toneClass } from './ui-bits';
@@ -37,11 +37,11 @@ export function SourcesRow({ sources }: { sources: SourceStatus[] }) {
   );
 }
 
-const SAMPLE_SOURCE: Record<string, string> = { 'Running distance': 'Strava', 'Avg sleep': 'Oura', 'Avg HRV': 'Oura' };
+const SAMPLE_SOURCE: Record<string, string> = { 'Running distance': 'Strava', 'Avg sleep': 'Apple Health', 'Avg HRV': 'Apple Health', 'Avg steps': 'Apple Health' };
 
 export function KpiGrid({ items }: { items: Kpi[] }) {
   return (
-    <section aria-label="Key numbers" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-4">
+    <section aria-label="Key numbers" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-4 xl:grid-cols-4">
       {items.map((k) => (
         <Card key={k.label} className="min-w-0 gap-1.5 px-[18px] py-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-subtle">
@@ -142,30 +142,37 @@ export function ConsistencyCard({ weeks }: { weeks: WeekBlock[] }) {
   );
 }
 
-export function NutritionCard({ days, range }: { days: DayRow[]; range: number }) {
+export function NutritionCard({ days, range, live }: { days: DayRow[]; range: number; live: Live }) {
   const { goals } = useSettings().settings;
   const y = days[days.length - 2];
   const past = days.slice(days.length - range);
-  const rows: [string, number, number, string][] = [
+  const logged = past.filter((d) => d.protein != null);
+  const avgKcal = avgOf(past, (d) => d.kcal);
+  const rows: [string, number | null, number, string][] = [
     ['Calories', y.kcal, goals.calories, ' kcal'],
     ['Protein', y.protein, goals.protein, ' g'],
     ['Carbs', y.carbs, goals.carbs, ' g'],
     ['Fat', y.fat, goals.fat, ' g'],
   ];
   return (
-    <Panel title="Nutrition" subtitle="Yesterday" sample="your nutrition app" className="col-span-12 xl:col-span-4">
+    <Panel
+      title="Nutrition"
+      subtitle={live.nutrition ? 'Yesterday · from Apple Health' : 'Yesterday'}
+      sample={live.nutrition ? undefined : 'your nutrition app'}
+      className="col-span-12 xl:col-span-4"
+    >
       <div className="flex flex-col gap-4">
         {rows.map(([label, v, goal, unit]) => (
           <div key={label}>
             <div className="flex justify-between gap-2 text-[13px]">
               <b>{label}</b>
               <span className="text-subtle tabular-nums">
-                {fmtInt(v)} / {fmtInt(goal)}
+                {v != null ? fmtInt(v) : 'Not logged'} / {fmtInt(goal)}
                 {unit}
               </span>
             </div>
-            <div role="img" aria-label={`${label} ${fmtInt(v)} of ${fmtInt(goal)}${unit}`} className="mt-2 h-2 overflow-hidden rounded bg-track">
-              <div className="h-full rounded bg-body" style={{ width: `${goal ? Math.min(100, (v / goal) * 100) : 100}%` }} />
+            <div role="img" aria-label={v != null ? `${label} ${fmtInt(v)} of ${fmtInt(goal)}${unit}` : `${label} not logged`} className="mt-2 h-2 overflow-hidden rounded bg-track">
+              <div className="h-full rounded bg-body" style={{ width: `${v == null ? 0 : goal ? Math.min(100, (v / goal) * 100) : 100}%` }} />
             </div>
           </div>
         ))}
@@ -173,12 +180,12 @@ export function NutritionCard({ days, range }: { days: DayRow[]; range: number }
       <div className="mt-5 flex flex-wrap gap-6 border-t border-grid pt-4">
         <div>
           <div className="text-xs text-muted-foreground">Avg calories · {range}D</div>
-          <div className="font-display text-xl font-bold">{fmtInt(past.reduce((s, d) => s + d.kcal, 0) / past.length)} kcal</div>
+          <div className="font-display text-xl font-bold">{avgKcal != null ? `${fmtInt(avgKcal)} kcal` : '–'}</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground">Protein goal hit</div>
           <div className="font-display text-xl font-bold">
-            {past.filter((d) => d.protein >= goals.protein).length} of {range} days
+            {logged.filter((d) => d.protein! >= goals.protein).length} of {logged.length} days
           </div>
         </div>
       </div>

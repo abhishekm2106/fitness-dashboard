@@ -7,6 +7,7 @@ import { getDb } from '@/db';
 import { users } from '@/db/schema';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { updateSettings } from '@/lib/settings-store';
+import { disconnect, issueToken } from '@/lib/apple-health/store';
 
 type Result = { ok: true; settings?: Settings } | { ok: false; error: string };
 
@@ -46,5 +47,25 @@ export async function saveName(name: string): Promise<Result> {
   if (!clean) return { ok: false, error: 'Enter a name.' };
   await (await getDb()).update(users).set({ name: clean }).where(eq(users.id, id));
   revalidatePath('/settings');
+  return { ok: true };
+}
+
+// --- Apple Health (Health Auto Export) ---
+
+/** Creates the connection, or replaces its token; the token is returned once and never stored */
+export async function issueAppleHealthToken(): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  const id = await userId();
+  if (!id) return { ok: false, error: 'Your session has expired. Sign in again.' };
+  const token = await issueToken(id);
+  revalidatePath('/settings');
+  return { ok: true, token };
+}
+
+export async function disconnectAppleHealth(): Promise<Result> {
+  const id = await userId();
+  if (!id) return { ok: false, error: 'Your session has expired. Sign in again.' };
+  await disconnect(id);
+  revalidatePath('/settings');
+  revalidatePath('/');
   return { ok: true };
 }

@@ -1,5 +1,5 @@
 import type { Fmt, Goals, WeekStart } from '@/lib/settings';
-import type { DayRow, Lift, LiftPoint, PrEvent } from './types';
+import type { DayRow, Lift, LiftPoint, Live, PrEvent } from './types';
 
 export const DAY = 86_400_000;
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -26,7 +26,14 @@ export const pace = (p: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 const sum = <T,>(a: T[], f: (x: T) => number) => a.reduce((s, x) => s + (f(x) || 0), 0);
-const avg = <T,>(a: T[], f: (x: T) => number) => (a.length ? sum(a, f) / a.length : 0);
+/** average over the days that have a value; null when none do */
+export const avgOf = <T,>(a: T[], f: (x: T) => number | null): number | null => {
+  const v = a.map(f).filter((x): x is number => x != null);
+  return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+};
+const known = <T,>(a: T[], f: (x: T) => number | null) => a.map(f).filter((x): x is number => x != null);
+/** sparkline points; a flat line when there's nothing to draw */
+const sparkOf = (v: number[]) => (v.length > 1 ? v : [v[0] ?? 0, v[0] ?? 0]);
 const pct = (c: number, p: number) => (p ? ((c - p) / p) * 100 : 0);
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 
@@ -66,7 +73,7 @@ export interface Kpi {
   sample: boolean;
 }
 
-export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals): Kpi[] {
+export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals, live: Live): Kpi[] {
   const n = days.length;
   const cur = days.slice(n - range);
   const prev = days.slice(n - 2 * range, n - range);
@@ -76,6 +83,15 @@ export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals): Kpi
   const wNow = weightAvg(days, n - 1);
   const wThen = weightAvg(days, n - range - 1);
   const weights = cur.map((_, i) => weightAvg(days, n - range + i) ?? 0);
+  const sleepNow = avgOf(cur, (d) => d.sleepH);
+  const sleepThen = avgOf(prev, (d) => d.sleepH);
+  const nights = known(cur, (d) => d.sleepH);
+  const hrvNow = avgOf(cur, (d) => d.hrv);
+  const hrvThen = avgOf(prev, (d) => d.hrv);
+  const stepsNow = avgOf(cur, (d) => d.steps);
+  const stepsThen = avgOf(prev, (d) => d.steps);
+  // a new source has nothing from the previous period to compare against
+  const noData: Delta = { text: `No data from the ${range} days before`, tone: 'flat' };
   return [
     {
       label: 'Workouts',
@@ -110,22 +126,32 @@ export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals): Kpi
     {
       label: 'Avg sleep',
       color: 'var(--chart-3)',
-      value: hm(avg(cur, (d) => d.sleepH)),
-      delta: delta(avg(cur, (d) => d.sleepH) * 60, avg(prev, (d) => d.sleepH) * 60, true, (v) => `${Math.round(v)} min`),
-      vs,
-      sub: `${cur.filter((d) => d.sleepH >= goals.sleepHours).length} of ${range} nights at your ${goals.sleepHours}h goal`,
-      spark: cur.map((d) => d.sleepH),
-      sample: true,
+      value: sleepNow != null ? hm(sleepNow) : '–',
+      delta: sleepNow != null && sleepThen != null ? delta(sleepNow * 60, sleepThen * 60, true, (v) => `${Math.round(v)} min`) : noData,
+      vs: sleepNow != null && sleepThen != null ? vs : '',
+      sub: `${nights.filter((h) => h >= goals.sleepHours).length} of ${nights.length} nights at your ${goals.sleepHours}h goal`,
+      spark: sparkOf(nights),
+      sample: !live.sleep,
     },
     {
       label: 'Avg HRV',
       color: 'var(--chart-3)',
-      value: `${Math.round(avg(cur, (d) => d.hrv))} ms`,
-      delta: delta(Math.round(avg(cur, (d) => d.hrv)), Math.round(avg(prev, (d) => d.hrv)), true, (v) => `${v} ms`),
-      vs,
-      sub: 'Overnight average',
-      spark: cur.map((d) => d.hrv),
-      sample: true,
+      value: hrvNow != null ? `${Math.round(hrvNow)} ms` : '–',
+      delta: hrvNow != null && hrvThen != null ? delta(Math.round(hrvNow), Math.round(hrvThen), true, (v) => `${v} ms`) : noData,
+      vs: hrvNow != null && hrvThen != null ? vs : '',
+      sub: live.hrv ? 'Overnight average · Apple Health' : 'Overnight average',
+      spark: sparkOf(known(cur, (d) => d.hrv)),
+      sample: !live.hrv,
+    },
+    {
+      label: 'Avg steps',
+      color: 'var(--chart-2)',
+      value: stepsNow != null ? fmtInt(stepsNow) : '–',
+      delta: stepsNow != null && stepsThen != null ? delta(pct(stepsNow, stepsThen), 0, true, (v) => `${v.toFixed(0)}%`) : noData,
+      vs: stepsNow != null && stepsThen != null ? vs : '',
+      sub: live.steps ? 'Per day · Apple Health' : 'Per day',
+      spark: sparkOf(known(cur, (d) => d.steps)),
+      sample: !live.steps,
     },
     {
       label: 'Body weight',
@@ -133,7 +159,7 @@ export function kpis(days: DayRow[], range: number, fmt: Fmt, goals: Goals): Kpi
       value: wNow != null ? fmt.body(wNow) : '–',
       delta: wNow != null && wThen != null ? delta(fmt.bodyNum(wNow), fmt.bodyNum(wThen), false, (v) => `${v.toFixed(1)} ${fmt.weightUnit}`) : { text: 'No weigh-ins', tone: 'flat' },
       vs: `over ${range} days`,
-      sub: '7-day average · from Hevy',
+      sub: '7-day average · Hevy and Apple Health',
       spark: weights.some((w) => w) ? weights.map((w) => w || weights.find(Boolean) || 0) : [0, 0],
       sample: false,
     },
@@ -210,13 +236,22 @@ export function weekSummary(days: DayRow[], prs: PrEvent[], fmt: Fmt, goals: Goa
   const kms = sum(w7, km);
   const volume = sum(w7, vol);
   const volPrev = sum(p7, vol);
-  const sleep = avg(w7, (d) => d.sleepH);
-  const proteinDays = w7.filter((d) => d.protein >= goals.protein).length;
+  const sleep = avgOf(w7, (d) => d.sleepH);
+  const proteinLogged = known(w7, (d) => d.protein);
+  const proteinDays = proteinLogged.filter((p) => p >= goals.protein).length;
   const pr7 = prs.filter((p) => p.date >= w7[0].date);
   const wNow = weightAvg(days, n - 1);
   const wPrev = weightAvg(days, n - 8);
-  // sessions and sleep score full marks at your goals
-  const score = Math.round(Math.min(40, (ses / goals.weeklySessions) * 40) + Math.min(25, (sleep / goals.sleepHours) * 25) + (proteinDays / 7) * 20 + (pr7.length ? 15 : volume >= volPrev ? 10 : 5));
+  // Sessions and sleep score full marks at your goals. Parts with no data this week (no sleep or
+  // food logged) are left out and the rest scaled up, rather than counted as zero.
+  const parts: [weight: number, value: number | null][] = [
+    [40, Math.min(1, ses / goals.weeklySessions)],
+    [25, sleep != null ? Math.min(1, sleep / goals.sleepHours) : null],
+    [20, proteinLogged.length ? proteinDays / proteinLogged.length : null],
+    [15, pr7.length ? 1 : volume >= volPrev ? 2 / 3 : 1 / 3],
+  ];
+  const counted = parts.filter((p): p is [number, number] => p[1] != null);
+  const score = Math.round((100 * counted.reduce((s, [w, v]) => s + w * v, 0)) / counted.reduce((s, [w]) => s + w, 0));
 
   const wins: string[] = [];
   if (pr7.length) {
@@ -231,10 +266,10 @@ export function weekSummary(days: DayRow[], prs: PrEvent[], fmt: Fmt, goals: Goa
   if (wNow != null && wPrev != null && wNow < wPrev) wins.push(`Down ${fmt.body(wPrev - wNow)} on your 7-day average, and your lifts are still climbing.`);
 
   const focus =
-    sleep < goals.sleepHours - 0.5
+    sleep != null && sleep < goals.sleepHours - 0.5
       ? `Sleep averaged ${hm(sleep)}. Get closer to your ${goals.sleepHours}h goal and your next heavy session will feel lighter.`
-      : proteinDays < 5
-        ? `You hit your protein goal on ${proteinDays} of 7 days. Aim for ${goals.protein} g every day so the cut takes fat, not muscle.`
+      : proteinLogged.length && proteinDays < Math.ceil(proteinLogged.length * 0.7)
+        ? `You hit your protein goal on ${proteinDays} of ${proteinLogged.length} logged days. Aim for ${goals.protein} g every day so the cut takes fat, not muscle.`
         : ses < goals.weeklySessions
           ? `Put ${goals.weeklySessions} sessions in your calendar for next week and treat them like meetings.`
           : `Keep the rhythm. Add one rep or ${fmt.plate} to your top set on each main lift.`;
@@ -279,7 +314,7 @@ export interface FeedItem {
   detail: string;
   when: string;
 }
-export function feed(days: DayRow[], fmt: Fmt): FeedItem[] {
+export function feed(days: DayRow[], fmt: Fmt, live: Live): FeedItem[] {
   const n = days.length;
   const items: FeedItem[] = [];
   const when = (i: number) => (i === n - 1 ? 'Today' : i === n - 2 ? 'Yesterday' : fdw(days[i].date));
@@ -293,7 +328,11 @@ export function feed(days: DayRow[], fmt: Fmt): FeedItem[] {
     if (d.cardio) {
       items.push({ key: `r-${d.date}`, color: 'var(--chart-2)', source: 'Strava', sample: true, title: `${d.cardio.long ? 'Long run' : 'Run'} · ${fmt.dist(d.cardio.km)}`, detail: `${d.cardio.minutes} min · ${fmt.pace(d.cardio.paceMinPerKm)}`, when: when(i) });
     }
-    items.push({ key: `s-${d.date}`, color: 'var(--chart-3)', source: 'Oura', sample: true, title: `Slept ${hm(d.sleepH)}`, detail: `Overnight HRV ${d.hrv} ms`, when: when(i) });
+    if (d.sleepH != null) {
+      const source = live.sleep ? 'Apple Health' : 'Oura';
+      const detail = d.hrv != null ? `Overnight HRV ${Math.round(d.hrv)} ms` : d.steps != null ? `${fmtInt(d.steps)} steps` : 'Sleep';
+      items.push({ key: `s-${d.date}`, color: 'var(--chart-3)', source, sample: !live.sleep, title: `Slept ${hm(d.sleepH)}`, detail, when: when(i) });
+    }
   }
   return items.slice(0, 8);
 }
