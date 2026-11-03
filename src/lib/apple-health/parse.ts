@@ -38,6 +38,8 @@ export interface ParseSummary {
   to: string | null;
   metrics: Partial<Record<Metric, number>>;
   unknown: string[];
+  /** how it arrived: Health Auto Export, a Shortcut, or an uploaded Health export */
+  via?: Via;
 }
 
 /** "2024-02-06 14:30:00 -0800" → "2024-02-06", the phone's local calendar day */
@@ -115,4 +117,132 @@ export function parseExport(body: unknown): { values: ParsedValue[]; summary: Pa
     values,
     summary: { points, days: dates.length, from: dates[0] ?? null, to: dates.at(-1) ?? null, metrics: counts, unknown: [...unknown].sort() },
   };
+}
+
+// --- Shortcuts: one flat object per day ---------------------------------------------------------
+// { "date": "2026-11-01", "steps": 9332, "sleep": 25560, "hrv": 52, "weight": 77.2, "weight_unit": "kg", ... }
+// or { "days": [ ...those objects ] }. Values may arrive as text ("9,332", "7,1"), and an empty or 0
+// value means "not tracked". Sleep is last night's, so it counts toward the day after "date".
+
+const RANGE: Record<Metric, [number, number]> = {
+  steps: [1, 200_000],
+  weight_kg: [20, 400],
+  body_fat_pct: [2, 70],
+  sleep_h: [0.25, 24],
+  hrv_ms: [1, 400],
+  resting_hr: [20, 200],
+  kcal: [1, 20_000],
+  protein_g: [1, 2_000],
+  carbs_g: [1, 2_000],
+  fat_g: [1, 2_000],
+  active_kcal: [1, 20_000],
+};
+
+/** True when a value is plausible for its metric; used for every source */
+export const inRange = (metric: Metric, v: number) => Number.isFinite(v) && v >= RANGE[metric][0] && v <= RANGE[metric][1];
+
+/** Reads numbers that Shortcuts may send as text, with thousands separators or a decimal comma */
+export function looseNum(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  let s = v.replace(/[\s  ]/g, '').replace(/[^\d.,-]+$/, '');
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');
+  else if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');
+  const n = Number(s);
+  return s !== '' && Number.isFinite(n) ? n : null;
+}
+
+const DAILY: Record<string, Exclude<Metric, 'sleep_h'>> = {
+  steps: 'steps',
+  step_count: 'steps',
+  hrv: 'hrv_ms',
+  hrv_ms: 'hrv_ms',
+  heart_rate_variability: 'hrv_ms',
+  resting_hr: 'resting_hr',
+  resting_heart_rate: 'resting_hr',
+  active_energy: 'active_kcal',
+  active_kcal: 'active_kcal',
+  weight: 'weight_kg',
+  weight_kg: 'weight_kg',
+  weight_lb: 'weight_kg',
+  body_fat: 'body_fat_pct',
+  body_fat_pct: 'body_fat_pct',
+  calories: 'kcal',
+  kcal: 'kcal',
+  dietary_energy: 'kcal',
+  protein: 'protein_g',
+  protein_g: 'protein_g',
+  carbs: 'carbs_g',
+  carbs_g: 'carbs_g',
+  carbohydrates: 'carbs_g',
+  fat: 'fat_g',
+  fat_g: 'fat_g',
+  total_fat: 'fat_g',
+};
+const IGNORED = new Set(['date', 'sleep_date', 'weight_unit', 'energy_unit', 'format', 'source']);
+const SLEEP_KEYS = new Set(['sleep', 'sleep_h', 'sleep_min', 'sleep_s']);
+
+const nextDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/** Sleep sent as a plain number: hours if it fits in a day, then minutes, then seconds */
+function sleepHours(key: string, v: number): number {
+  if (key === 'sleep_h') return v;
+  if (key === 'sleep_min') return v / 60;
+  if (key === 'sleep_s') return v / 3600;
+  return v <= 24 ? v : v <= 1440 ? v / 60 : v / 3600;
+}
+
+export function parseDaily(body: unknown): { values: ParsedValue[]; summary: ParseSummary } {
+  const b = body as { days?: unknown };
+  const days = Array.isArray(b?.days) ? b.days : b && typeof b === 'object' && 'date' in b ? [b] : null;
+  if (!days) throw new ParseError('Expected a day object with a "date", like { "date": "2026-11-01", "steps": 9000 }, or { "days": [...] }.');
+
+  const out = new Map<string, ParsedValue>();
+  const unknown = new Set<string>();
+  let points = 0;
+  for (const raw of days as Record<string, unknown>[]) {
+    const date = day(raw?.date);
+    if (!date) throw new ParseError(`Each day needs a "date" formatted yyyy-MM-dd; got ${JSON.stringify(raw?.date ?? null)}.`);
+    const weightLb = /lb|pound/i.test(String(raw.weight_unit ?? ''));
+    const energyKj = /kj|joule/i.test(String(raw.energy_unit ?? ''));
+    for (const [key, rawValue] of Object.entries(raw)) {
+      const k = key.toLowerCase();
+      if (IGNORED.has(k)) continue;
+      const v = looseNum(rawValue);
+      if (SLEEP_KEYS.has(k)) {
+        points++;
+        if (v == null || v <= 0) continue;
+        const h = Math.round(sleepHours(k, v) * 100) / 100;
+        const d = day(raw.sleep_date) ?? nextDay(date);
+        if (inRange('sleep_h', h)) out.set(`${d}|sleep_h`, { date: d, metric: 'sleep_h', value: h });
+        continue;
+      }
+      const metric = DAILY[k];
+      if (!metric) {
+        unknown.add(key);
+        continue;
+      }
+      points++;
+      if (v == null || v === 0) continue;
+      let value = v;
+      if (metric === 'weight_kg' && (k === 'weight_lb' || (k === 'weight' && weightLb))) value = v * 0.453592;
+      if (metric === 'body_fat_pct' && v <= 1) value = v * 100;
+      if ((metric === 'kcal' || metric === 'active_kcal') && energyKj) value = v / 4.184;
+      value = Math.round(value * 100) / 100;
+      if (inRange(metric, value)) out.set(`${date}|${metric}`, { date, metric, value });
+    }
+  }
+  const values = [...out.values()];
+  const counts: Partial<Record<Metric, number>> = {};
+  for (const v of values) counts[v.metric] = (counts[v.metric] ?? 0) + 1;
+  const dates = [...new Set(values.map((v) => v.date))].sort();
+  return { values, summary: { points, days: dates.length, from: dates[0] ?? null, to: dates.at(-1) ?? null, metrics: counts, unknown: [...unknown].sort() } };
+}
+
+export type Via = 'auto-export' | 'shortcut' | 'export-file';
+
+/** Health Auto Export sends { data: { metrics } }; a Shortcut sends flat day objects */
+export function parseDelivery(body: unknown): { values: ParsedValue[]; summary: ParseSummary; via: Via } {
+  if ((body as { data?: unknown })?.data) return { ...parseExport(body), via: 'auto-export' };
+  return { ...parseDaily(body), via: 'shortcut' };
 }

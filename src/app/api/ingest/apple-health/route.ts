@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { ParseError, parseExport } from '@/lib/apple-health/parse';
+import { ParseError, parseDelivery } from '@/lib/apple-health/parse';
 import { recordError, saveDelivery, userForToken } from '@/lib/apple-health/store';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Health Auto Export's "REST API" automation posts Health Metrics JSON here,
-// with the token from Settings in an "Authorization: Bearer …" header.
+// Health Auto Export's "REST API" automation posts Health Metrics JSON here, and a Shortcuts
+// automation posts flat day objects; both send the token from Settings as "Authorization: Bearer …".
 function tokenFrom(req: Request): string | null {
   const auth = req.headers.get('authorization');
   if (auth?.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
@@ -22,13 +22,13 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    await recordError(userId, 'The delivery wasn’t valid JSON. Set Export Format to JSON in Health Auto Export.');
+    await recordError(userId, 'The delivery wasn’t valid JSON. In Health Auto Export set Export Format to JSON; in Shortcuts set Request Body to JSON.');
     return NextResponse.json({ error: 'Body must be JSON.' }, { status: 400 });
   }
 
   try {
-    const { values, summary } = parseExport(body);
-    await saveDelivery(userId, values, summary);
+    const { values, summary, via } = parseDelivery(body);
+    await saveDelivery(userId, values, { ...summary, via });
     return NextResponse.json({ ok: true, saved: values.length, days: summary.days, unrecognised: summary.unknown });
   } catch (err) {
     const message = err instanceof ParseError ? err.message : 'Couldn’t store the delivery.';
@@ -38,5 +38,5 @@ export async function POST(req: Request) {
 }
 
 export function GET() {
-  return NextResponse.json({ error: 'Send Health Metrics JSON with POST.' }, { status: 405 });
+  return NextResponse.json({ error: 'Send Health JSON with POST.' }, { status: 405 });
 }

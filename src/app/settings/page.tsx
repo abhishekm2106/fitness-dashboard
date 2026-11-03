@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getDb } from '@/db';
 import { getProfile } from '@/lib/account';
-import { getConnection } from '@/lib/apple-health/store';
+import { getStatus } from '@/lib/apple-health/store';
 import { getSettings } from '@/lib/settings-store';
 import { SOURCES } from '@/lib/sources';
 import { lastSync, workoutCount } from '@/lib/sync/hevy';
@@ -65,23 +65,16 @@ export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user) redirect('/login?callbackUrl=/settings');
   const db = await getDb();
-  const [settings, profile, sync, workouts, health, h] = await Promise.all([
+  const [settings, profile, sync, workouts, appleHealth, h] = await Promise.all([
     getSettings(session.user.id),
     getProfile(session.user.id),
     lastSync(db),
     workoutCount(db),
-    getConnection(session.user.id),
+    getStatus(session.user.id),
     headers(),
   ]);
   // the address the phone should post to, as this server is reached right now
   const endpoint = `${h.get('x-forwarded-proto') ?? 'http'}://${h.get('x-forwarded-host') ?? h.get('host')}/api/ingest/apple-health`;
-  const appleHealth = health && {
-    connectedAt: health.connectedAt.toISOString(),
-    lastReceivedAt: health.lastReceivedAt?.toISOString() ?? null,
-    summary: health.lastSummary,
-    lastError: health.lastError,
-    secretHint: health.secretHint,
-  };
 
   const name = profile?.name ?? session.user.name ?? '';
   const email = profile?.email ?? session.user.email ?? '';

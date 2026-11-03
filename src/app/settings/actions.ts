@@ -7,7 +7,9 @@ import { getDb } from '@/db';
 import { users } from '@/db/schema';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { updateSettings } from '@/lib/settings-store';
-import { disconnect, issueToken } from '@/lib/apple-health/store';
+import { inRange, type Metric, type ParsedValue, type ParseSummary } from '@/lib/apple-health/parse';
+import { disconnect, getStatus, issueToken, markDelivered, saveValues } from '@/lib/apple-health/store';
+import type { AppleHealthStatus } from '@/lib/apple-health/status';
 
 type Result = { ok: true; settings?: Settings } | { ok: false; error: string };
 
@@ -68,4 +70,40 @@ export async function disconnectAppleHealth(): Promise<Result> {
   revalidatePath('/settings');
   revalidatePath('/');
   return { ok: true };
+}
+
+/** Polled by the setup guide while it waits for the phone's first delivery */
+export async function appleHealthStatus(): Promise<AppleHealthStatus | null> {
+  return getStatus((await userId()) ?? undefined);
+}
+
+const METRICS = new Set<Metric>(['steps', 'weight_kg', 'body_fat_pct', 'sleep_h', 'hrv_ms', 'resting_hr', 'kcal', 'protein_g', 'carbs_g', 'fat_g', 'active_kcal']);
+
+/**
+ * Daily values read from an uploaded Apple Health export in the browser. Sent in chunks; the last
+ * chunk carries the summary that the Settings card shows. Each value is checked again here.
+ */
+export async function importAppleHealthExport(values: ParsedValue[], summary: ParseSummary | null): Promise<{ ok: true; saved: number } | { ok: false; error: string }> {
+  const id = await userId();
+  if (!id) return { ok: false, error: 'Your session has expired. Sign in again.' };
+  if (!Array.isArray(values) || values.length > 5000) return { ok: false, error: 'Too many values in one request.' };
+  const clean = values.filter(
+    (v) => v && typeof v.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.date) && METRICS.has(v.metric) && typeof v.value === 'number' && inRange(v.metric, v.value),
+  );
+  await saveValues(clean.map((v) => ({ date: v.date, metric: v.metric, value: v.value })));
+  if (summary) {
+    const days = Number(summary.days) || 0;
+    await markDelivered(id, {
+      points: Number(summary.points) || 0,
+      days,
+      from: typeof summary.from === 'string' ? summary.from.slice(0, 10) : null,
+      to: typeof summary.to === 'string' ? summary.to.slice(0, 10) : null,
+      metrics: Object.fromEntries(Object.entries(summary.metrics ?? {}).filter(([m, n]) => METRICS.has(m as Metric) && typeof n === 'number')),
+      unknown: [],
+      via: 'export-file',
+    });
+    revalidatePath('/');
+    revalidatePath('/settings');
+  }
+  return { ok: true, saved: clean.length };
 }

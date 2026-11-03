@@ -3,6 +3,7 @@ import { and, eq, gte, sql } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { healthMetrics, sourceConnections } from '@/db/schema';
 import type { Metric, ParsedValue, ParseSummary } from './parse';
+import type { AppleHealthStatus } from './status';
 
 export const SOURCE = 'apple-health';
 
@@ -50,7 +51,8 @@ export async function userForToken(token: string): Promise<string | null> {
   return c?.userId ?? null;
 }
 
-export async function saveDelivery(userId: string, values: ParsedValue[], summary: ParseSummary) {
+/** Stores daily values; a newer value for the same day and metric replaces the old one */
+export async function saveValues(values: ParsedValue[]) {
   const db = await getDb();
   for (let i = 0; i < values.length; i += 500) {
     await db
@@ -58,10 +60,22 @@ export async function saveDelivery(userId: string, values: ParsedValue[], summar
       .values(values.slice(i, i + 500).map((v) => ({ ...v, source: SOURCE })))
       .onConflictDoUpdate({ target: [healthMetrics.date, healthMetrics.metric], set: { value: sql`excluded.value`, source: SOURCE, updatedAt: new Date() } });
   }
+}
+
+/** Records what the last delivery contained, for the Settings card */
+export async function markDelivered(userId: string, summary: ParseSummary) {
+  const db = await getDb();
+  // an uploaded export needs no key, so the connection may not exist yet
+  await db.insert(sourceConnections).values({ userId, source: SOURCE }).onConflictDoNothing();
   await db
     .update(sourceConnections)
     .set({ lastReceivedAt: new Date(), lastSummary: { ...summary, at: new Date().toISOString() }, lastError: null })
     .where(and(eq(sourceConnections.userId, userId), eq(sourceConnections.source, SOURCE)));
+}
+
+export async function saveDelivery(userId: string, values: ParsedValue[], summary: ParseSummary) {
+  await saveValues(values);
+  await markDelivered(userId, summary);
 }
 
 export async function recordError(userId: string, message: string) {
@@ -93,4 +107,18 @@ export async function lastDelivery(): Promise<Date | null> {
     .from(sourceConnections)
     .where(eq(sourceConnections.source, SOURCE));
   return r?.at ? new Date(r.at) : null;
+}
+
+/** The connection as the Settings card and setup guide see it */
+export async function getStatus(userId: string | undefined): Promise<AppleHealthStatus | null> {
+  const c = await getConnection(userId);
+  return (
+    c && {
+      connectedAt: c.connectedAt.toISOString(),
+      lastReceivedAt: c.lastReceivedAt?.toISOString() ?? null,
+      summary: c.lastSummary,
+      lastError: c.lastError,
+      secretHint: c.secretHint,
+    }
+  );
 }
