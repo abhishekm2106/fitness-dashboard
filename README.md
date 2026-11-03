@@ -29,7 +29,7 @@ Every page and API route needs a signed-in user, except `/login` and the sign-in
 cookies (Auth.js, JWT strategy); the database keeps users, their linked Google/Apple logins and pending email codes.
 
 1. Generate the session secret and put it in `.env.local` as `AUTH_SECRET`:
-   `npx auth secret --raw`
+   `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
 2. List who may sign in: `ALLOWED_EMAILS=you@gmail.com,you@icloud.com`. Locally an empty list lets anyone in;
    in production an empty list lets nobody in.
 3. Set up any of the methods below. Google's button stays disabled until its two variables are set; Apple's is hidden behind a flag.
@@ -98,9 +98,17 @@ The Settings card shows the last delivery, which metrics arrived, any names it d
 
 Migrations live in `./drizzle` and run automatically on first connection. After editing `src/db/schema.ts`, run `npm run db:generate`.
 
-## Deploying (Vercel + Supabase)
+## Deploying (Vercel + Neon)
 
-Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAILS`, `AUTH_RESEND_KEY` and any Google/Apple variables in Vercel.
+1. In Vercel, **Add New → Project**, import this repo and keep `main` as the production branch. Every merge to `main` deploys.
+2. **Storage → Create Database → Neon** (free plan, region `iad1` next to Vercel's functions), connect it to the project
+   with the prefix `DATABASE`, so Vercel sets `DATABASE_URL`. Tables are created on the first request.
+3. **Settings → Environment Variables** (Production): `AUTH_SECRET`, `CRON_SECRET` (generate each with the command above),
+   `ALLOWED_EMAILS`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `HEVY_API_KEY` (or `HEVY_MOCK=1`). Add `AUTH_RESEND_KEY`
+   to turn on email codes, and any Apple variables. Variables apply from the next deploy.
+4. Add `https://<your-domain>/api/auth/callback/google` to the Google OAuth client's redirect URIs.
+
+Any other Postgres works too; for Supabase, use the transaction pooler connection string as `DATABASE_URL`.
 `vercel.json` schedules a daily sync at 05:00 UTC (Vercel's Hobby plan allows one cron run per day).
 `/api/sync` accepts the cron secret, a signed-in session (the **Sync now** button), or `SYNC_SECRET` as the `x-sync-secret` header for scripts.
 
