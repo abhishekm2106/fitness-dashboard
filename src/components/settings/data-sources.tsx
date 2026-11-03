@@ -1,7 +1,9 @@
-import { ClockIcon, DatabaseIcon, InfoIcon, PlugIcon } from 'lucide-react';
+import { ClockIcon, DatabaseIcon, InfoIcon, PlugIcon, TableIcon } from 'lucide-react';
+import Link from 'next/link';
 import { SyncButton } from '@/components/dashboard/sync-button';
 import { AppleHealthCard, type AppleHealthStatus } from '@/components/settings/apple-health-card';
 import { SourceLogo } from '@/components/sources/source-logo';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SOURCES, type SourceInfo } from '@/lib/sources';
 import { cn } from '@/lib/utils';
@@ -73,7 +75,15 @@ function HevyCard({ info, sync, workouts }: { info: SourceInfo; sync: { at: stri
             <p className="text-sm text-subtle">{info.via}. Feeds {info.feeds}.</p>
             <Chips items={info.provides} />
           </div>
-          <div className="w-full sm:w-auto">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            {sync && (
+              <Button asChild variant="outline" className="h-10 rounded-[10px]">
+                <Link href="/sources/hevy">
+                  <TableIcon aria-hidden />
+                  View data
+                </Link>
+              </Button>
+            )}
             <SyncButton />
           </div>
         </div>

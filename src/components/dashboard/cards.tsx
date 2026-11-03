@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckIcon, CircleDashedIcon } from 'lucide-react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { avgOf, fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
 import type { DayRow, Live, PrEvent, SourceStatus } from '@/lib/dashboard/types';
@@ -21,7 +22,12 @@ export function SourcesRow({ sources }: { sources: SourceStatus[] }) {
   return (
     <section aria-label="Data sources" className="flex flex-wrap gap-2">
       {sources.map((s) => (
-        <div key={s.id} className="flex items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2">
+        <Link
+          key={s.id}
+          href={`/sources/${s.id}`}
+          title={`See everything from ${s.name}`}
+          className="flex items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2 transition-colors outline-none hover:border-white/25 hover:bg-white/[0.03] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
           <Swatch color={SOURCE_COLOR[s.id]} />
           <div className="leading-tight">
             <b className="block text-[13px]">{s.name}</b>
@@ -31,7 +37,7 @@ export function SourcesRow({ sources }: { sources: SourceStatus[] }) {
             {s.connected ? <CheckIcon className="size-3" aria-hidden /> : <CircleDashedIcon className="size-3" aria-hidden />}
             {s.status}
           </span>
-        </div>
+        </Link>
       ))}
     </section>
   );
