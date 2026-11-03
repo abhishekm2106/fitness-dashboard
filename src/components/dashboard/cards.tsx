@@ -1,10 +1,12 @@
 'use client';
 
 import { CheckIcon, CircleDashedIcon } from 'lucide-react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/card';
-import { fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
-import type { DayRow, PrEvent, SourceStatus } from '@/lib/dashboard/types';
+import { avgOf, fd, fmtInt, LIFT_NAMES, type FeedItem, type Kpi, type WeekBlock, type WeekSummary } from '@/lib/dashboard/compute';
+import type { DayRow, Live, PrEvent, SourceStatus } from '@/lib/dashboard/types';
 import { cn } from '@/lib/utils';
+import { useSettings } from './settings-context';
 import { Panel, SampleBadge, Sparkline, Swatch, toneClass } from './ui-bits';
 
 const SOURCE_COLOR: Record<SourceStatus['id'], string> = {
@@ -20,7 +22,12 @@ export function SourcesRow({ sources }: { sources: SourceStatus[] }) {
   return (
     <section aria-label="Data sources" className="flex flex-wrap gap-2">
       {sources.map((s) => (
-        <div key={s.id} className="flex items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2">
+        <Link
+          key={s.id}
+          href={`/sources/${s.id}`}
+          title={`See everything from ${s.name}`}
+          className="flex items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2 transition-colors outline-none hover:border-white/25 hover:bg-white/[0.03] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
           <Swatch color={SOURCE_COLOR[s.id]} />
           <div className="leading-tight">
             <b className="block text-[13px]">{s.name}</b>
@@ -30,17 +37,17 @@ export function SourcesRow({ sources }: { sources: SourceStatus[] }) {
             {s.connected ? <CheckIcon className="size-3" aria-hidden /> : <CircleDashedIcon className="size-3" aria-hidden />}
             {s.status}
           </span>
-        </div>
+        </Link>
       ))}
     </section>
   );
 }
 
-const SAMPLE_SOURCE: Record<string, string> = { 'Running distance': 'Strava', 'Avg sleep': 'Oura', 'Avg HRV': 'Oura' };
+const SAMPLE_SOURCE: Record<string, string> = { 'Running distance': 'Strava', 'Avg sleep': 'Apple Health', 'Avg HRV': 'Apple Health', 'Avg steps': 'Apple Health' };
 
 export function KpiGrid({ items }: { items: Kpi[] }) {
   return (
-    <section aria-label="Key numbers" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-4">
+    <section aria-label="Key numbers" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-4 xl:grid-cols-4">
       {items.map((k) => (
         <Card key={k.label} className="min-w-0 gap-1.5 px-[18px] py-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-subtle">
@@ -61,6 +68,7 @@ export function KpiGrid({ items }: { items: Kpi[] }) {
 }
 
 export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
+  const { fmt } = useSettings();
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - 90 * 86_400_000).toISOString().slice(0, 10);
   const recent = prs.filter((p) => p.date >= cutoff);
   return (
@@ -71,11 +79,11 @@ export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
             <div className="min-w-0">
               <b className="block text-sm">{LIFT_NAMES[p.lift].name}</b>
               <span className="text-xs text-subtle">
-                {p.weightKg} kg × {p.reps} · e1RM {p.e1rmKg} kg
+                {fmt.lift(p.weightKg)} × {p.reps} · e1RM {fmt.lift(p.e1rmKg)}
               </span>
             </div>
             <div className="flex shrink-0 flex-col items-end text-[11px] text-muted-foreground">
-              <b className="text-[13px] text-good">+{p.gainKg.toFixed(1)} kg</b>
+              <b className="text-[13px] text-good">+{fmt.lift(p.gainKg)}</b>
               {fd(p.date)} · Hevy
             </div>
           </li>
@@ -89,15 +97,19 @@ export function PrCard({ prs, today }: { prs: PrEvent[]; today: string }) {
 const LEVELS = ['var(--track)', '#184f95', '#256abf', '#3987e5', '#6da7ec'];
 const level = (m: number) => (m === 0 ? 0 : m < 40 ? 1 : m < 65 ? 2 : m < 90 ? 3 : 4);
 
+const ROWS = { mon: ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'], sun: ['Sun', '', 'Tue', '', 'Thu', '', 'Sat'] };
+
 export function ConsistencyCard({ weeks }: { weeks: WeekBlock[] }) {
+  const { settings } = useSettings();
+  const target = settings.goals.weeklySessions;
   const total = weeks.reduce((s, w) => s + w.sessions, 0);
   let streak = 0;
-  for (let q = weeks.length - 2; q >= 0 && weeks[q].sessions >= 4; q--) streak++;
+  for (let q = weeks.length - 2; q >= 0 && weeks[q].sessions >= target; q--) streak++;
   return (
-    <Panel title="Consistency" subtitle={`${total} sessions in 12 weeks · ${streak}-week streak at 4+ sessions`} className="col-span-12 xl:col-span-5">
+    <Panel title="Consistency" subtitle={`${total} sessions in 12 weeks · ${streak}-week streak at ${target}+ sessions`} className="col-span-12 xl:col-span-5">
       <div className="flex gap-1">
         <div className="flex w-[30px] shrink-0 flex-col gap-1 text-[11px] leading-[22px] text-muted-foreground">
-          {['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (
+          {ROWS[settings.display.weekStart].map((d, i) => (
             <span key={i} className="h-[22px]">
               {d}
             </span>
@@ -136,29 +148,37 @@ export function ConsistencyCard({ weeks }: { weeks: WeekBlock[] }) {
   );
 }
 
-export function NutritionCard({ days, range }: { days: DayRow[]; range: number }) {
+export function NutritionCard({ days, range, live }: { days: DayRow[]; range: number; live: Live }) {
+  const { goals } = useSettings().settings;
   const y = days[days.length - 2];
   const past = days.slice(days.length - range);
-  const rows: [string, number, number, string][] = [
-    ['Calories', y.kcal, 2400, ' kcal'],
-    ['Protein', y.protein, 160, ' g'],
-    ['Carbs', y.carbs, 260, ' g'],
-    ['Fat', y.fat, 75, ' g'],
+  const logged = past.filter((d) => d.protein != null);
+  const avgKcal = avgOf(past, (d) => d.kcal);
+  const rows: [string, number | null, number, string][] = [
+    ['Calories', y.kcal, goals.calories, ' kcal'],
+    ['Protein', y.protein, goals.protein, ' g'],
+    ['Carbs', y.carbs, goals.carbs, ' g'],
+    ['Fat', y.fat, goals.fat, ' g'],
   ];
   return (
-    <Panel title="Nutrition" subtitle="Yesterday" sample="your nutrition app" className="col-span-12 xl:col-span-4">
+    <Panel
+      title="Nutrition"
+      subtitle={live.nutrition ? 'Yesterday · from Apple Health' : 'Yesterday'}
+      sample={live.nutrition ? undefined : 'your nutrition app'}
+      className="col-span-12 xl:col-span-4"
+    >
       <div className="flex flex-col gap-4">
         {rows.map(([label, v, goal, unit]) => (
           <div key={label}>
             <div className="flex justify-between gap-2 text-[13px]">
               <b>{label}</b>
               <span className="text-subtle tabular-nums">
-                {fmtInt(v)} / {fmtInt(goal)}
+                {v != null ? fmtInt(v) : 'Not logged'} / {fmtInt(goal)}
                 {unit}
               </span>
             </div>
-            <div role="img" aria-label={`${label} ${fmtInt(v)} of ${fmtInt(goal)}${unit}`} className="mt-2 h-2 overflow-hidden rounded bg-track">
-              <div className="h-full rounded bg-body" style={{ width: `${Math.min(100, (v / goal) * 100)}%` }} />
+            <div role="img" aria-label={v != null ? `${label} ${fmtInt(v)} of ${fmtInt(goal)}${unit}` : `${label} not logged`} className="mt-2 h-2 overflow-hidden rounded bg-track">
+              <div className="h-full rounded bg-body" style={{ width: `${v == null ? 0 : goal ? Math.min(100, (v / goal) * 100) : 100}%` }} />
             </div>
           </div>
         ))}
@@ -166,12 +186,12 @@ export function NutritionCard({ days, range }: { days: DayRow[]; range: number }
       <div className="mt-5 flex flex-wrap gap-6 border-t border-grid pt-4">
         <div>
           <div className="text-xs text-muted-foreground">Avg calories · {range}D</div>
-          <div className="font-display text-xl font-bold">{fmtInt(past.reduce((s, d) => s + d.kcal, 0) / past.length)} kcal</div>
+          <div className="font-display text-xl font-bold">{avgKcal != null ? `${fmtInt(avgKcal)} kcal` : '–'}</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground">Protein goal hit</div>
           <div className="font-display text-xl font-bold">
-            {past.filter((d) => d.protein >= 150).length} of {range} days
+            {logged.filter((d) => d.protein! >= goals.protein).length} of {logged.length} days
           </div>
         </div>
       </div>

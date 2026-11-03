@@ -140,6 +140,49 @@ export const verificationTokens = pgTable(
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );
 
+// goals, units and display choices, validated by parseSettings in src/lib/settings.ts
+export const userSettings = pgTable('user_settings', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  data: jsonb('data').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// --- Connected data sources ---
+
+// how each source is linked; for Apple Health, the hash of the token the phone sends
+export const sourceConnections = pgTable(
+  'source_connections',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(),
+    secretHash: text('secret_hash'),
+    secretHint: text('secret_hint'),
+    connectedAt: timestamp('connected_at', { withTimezone: true }).notNull().defaultNow(),
+    lastReceivedAt: timestamp('last_received_at', { withTimezone: true }),
+    // what the last delivery contained: metric counts, unrecognised names, date span
+    lastSummary: jsonb('last_summary'),
+    lastError: text('last_error'),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.source] }), index('source_connections_secret_idx').on(t.secretHash)],
+);
+
+// one value per day and metric (steps, sleep_h, weight_kg…); a newer delivery for the same day replaces it
+export const healthMetrics = pgTable(
+  'health_metrics',
+  {
+    date: date('date').notNull(),
+    metric: text('metric').notNull(),
+    value: real('value').notNull(),
+    source: text('source').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.date, t.metric] })],
+);
+
 export const workoutsRelations = relations(workouts, ({ many }) => ({ exercises: many(workoutExercises) }));
 export const workoutExercisesRelations = relations(workoutExercises, ({ one, many }) => ({
   workout: one(workouts, { fields: [workoutExercises.workoutId], references: [workouts.id] }),

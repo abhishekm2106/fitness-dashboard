@@ -1,9 +1,10 @@
 import { desc, eq, gte, sql } from 'drizzle-orm';
 import type { DB } from '@/db';
 import { workoutExercises, workouts } from '@/db/schema';
+import { healthByDate, lastDelivery } from '@/lib/apple-health/store';
 import { getDashboardData } from '@/lib/metrics';
 import { sampleDay } from './sample';
-import type { DashboardPayload, DayRow, Lift, SourceStatus, StrengthDay } from './types';
+import type { DashboardPayload, DayRow, Lift, Live, SourceStatus, StrengthDay } from './types';
 
 const DAY = 86_400_000;
 const WINDOW = 182; // enough for a 90-day view compared with the 90 days before it
@@ -65,6 +66,11 @@ export async function getDashboardPayload(db: DB, now = Date.now()): Promise<Das
     });
   }
 
+  // Apple Health: a metric counts as live once any day in the window has it
+  const [health, healthAt] = await Promise.all([healthByDate(iso(from)), lastDelivery()]);
+  const has = (...keys: string[]) => [...health.values()].some((d) => keys.some((k) => k in d));
+  const live: Live = { sleep: has('sleep_h'), hrv: has('hrv_ms'), steps: has('steps'), nutrition: has('kcal', 'protein_g', 'carbs_g', 'fat_g') };
+
   const body = metrics.body;
   let bi = 0;
   let weightKg: number | null = null;
@@ -78,17 +84,35 @@ export async function getDashboardPayload(db: DB, now = Date.now()): Promise<Das
       bodyFat = body[bi].fatPercent ?? bodyFat;
       bi++;
     }
+    const ah = health.get(date) ?? {};
+    // a same-day Apple Health weigh-in (smart scale) wins over the carried-forward one
+    weightKg = ah.weight_kg ?? weightKg;
+    bodyFat = ah.body_fat_pct ?? bodyFat;
     const strength = byDate.get(date) ?? null;
-    days.push({ date, strength, weightKg, bodyFat, ...sampleDay(date, i / (WINDOW - 1), !!strength) });
+    const sample = sampleDay(date, i / (WINDOW - 1), !!strength);
+    days.push({
+      date,
+      strength,
+      weightKg,
+      bodyFat,
+      cardio: sample.cardio,
+      sleepH: live.sleep ? (ah.sleep_h ?? null) : sample.sleepH,
+      hrv: live.hrv ? (ah.hrv_ms ?? null) : sample.hrv,
+      steps: live.steps ? (ah.steps ?? null) : sample.steps,
+      kcal: live.nutrition ? (ah.kcal ?? null) : sample.kcal,
+      protein: live.nutrition ? (ah.protein_g ?? null) : sample.protein,
+      carbs: live.nutrition ? (ah.carbs_g ?? null) : sample.carbs,
+      fat: live.nutrition ? (ah.fat_g ?? null) : sample.fat,
+    });
   }
 
   const hevyStatus = metrics.sync ? ago(metrics.sync.at, now) + (metrics.sync.mock ? ' · sample data' : '') : 'Not synced yet';
   const sources: SourceStatus[] = [
     { id: 'hevy', name: 'Hevy', via: 'API · workouts, body', connected: !!metrics.sync, status: hevyStatus },
     { id: 'strava', name: 'Strava', via: 'Runs', connected: false, status: 'Sample data' },
-    { id: 'oura', name: 'Oura', via: 'Sleep, HRV', connected: false, status: 'Sample data' },
-    { id: 'apple-health', name: 'Apple Health', via: 'Steps, weight', connected: false, status: 'Not connected' },
-    { id: 'nutrition', name: 'Nutrition', via: 'Calories, macros', connected: false, status: 'Sample data' },
+    { id: 'oura', name: 'Oura', via: 'Sleep, HRV', connected: false, status: live.sleep ? 'Not connected' : 'Sample data' },
+    { id: 'apple-health', name: 'Apple Health', via: 'Sleep, steps, weight', connected: !!healthAt, status: healthAt ? ago(healthAt.toISOString(), now) : 'Not connected' },
+    { id: 'nutrition', name: 'Nutrition', via: 'Calories, macros', connected: live.nutrition, status: live.nutrition ? 'Via Apple Health' : 'Sample data' },
   ];
 
   return {
@@ -97,6 +121,7 @@ export async function getDashboardPayload(db: DB, now = Date.now()): Promise<Das
     hevyMock: !!metrics.sync?.mock,
     lastSync: metrics.sync?.at ?? null,
     sources,
+    live,
     days,
     lifts: metrics.lifts,
     prs: metrics.prs,
