@@ -1,0 +1,411 @@
+/* Neon stage + generated comic art. data-act on .fig picks the pose, its motion and its effects. */
+.stage {
+  position: relative;
+  height: 460px;
+  background:
+    radial-gradient(ellipse 75% 32% at 50% 88%, rgba(79, 216, 230, 0.22), transparent 70%),
+    radial-gradient(ellipse 85% 65% at 50% 70%, #11404d 0%, #0c2229 45%, #0e1213 100%);
+}
+.hud {
+  position: absolute;
+  top: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+}
+.eyebrow {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--stage-ink);
+}
+.mode {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.1;
+}
+.bars {
+  height: 6px;
+  width: min(70%, 260px);
+  margin: 8px auto 0;
+  border-radius: 3px;
+  background: repeating-linear-gradient(115deg, rgba(127, 227, 238, 0.3) 0 6px, transparent 6px 12px);
+}
+.caption {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  background: rgba(8, 14, 15, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+.caption span {
+  color: var(--muted-foreground);
+}
+.live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.fig {
+  position: absolute;
+  left: 50%;
+  top: 92px;
+  width: min(94%, 340px);
+  aspect-ratio: 520 / 470;
+  transform: translateX(-50%);
+}
+.pop,
+.move {
+  position: absolute;
+  inset: 0;
+}
+.move {
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 0 10px rgba(79, 216, 230, 0.4));
+}
+.move img {
+  display: none;
+}
+.popping {
+  animation: pop 0.35s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fx {
+  position: absolute;
+  pointer-events: none;
+  display: none;
+}
+
+.fig[data-act='idle'] .idle,
+.fig[data-act='run'] .run,
+.fig[data-act='curl'] .curl,
+.fig[data-act='flex'] .flex,
+.fig[data-act='thumbs'] .thumbs,
+.fig[data-act='rest'] .rest {
+  display: block;
+}
+.fig[data-act='run'] .fRun,
+.fig[data-act='curl'] .fCurl,
+.fig[data-act='flex'] .fFlex,
+.fig[data-act='thumbs'] .fThumbs,
+.fig[data-act='rest'] .fRest {
+  display: block;
+}
+
+.fig[data-act='idle'] .move {
+  animation: idleMove 3.2s ease-in-out infinite;
+}
+@keyframes idleMove {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-3px) scaleY(1.012);
+  }
+}
+.fig[data-act='run'] .move {
+  animation: runMove 0.36s ease-in-out infinite;
+}
+@keyframes runMove {
+  0%,
+  100% {
+    transform: translateY(0) scale(1.012, 0.988);
+  }
+  45% {
+    transform: translateY(-9px) scale(0.995, 1.008);
+  }
+}
+.fig[data-act='curl'] .move {
+  animation: curlMove 2.2s ease-in-out infinite;
+}
+@keyframes curlMove {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-7px) scale(1.02);
+  }
+  44% {
+    transform: translate(-1.5px, -7px) scale(1.02);
+  }
+  48% {
+    transform: translate(1.5px, -7px) scale(1.02);
+  }
+  52% {
+    transform: translate(-1.5px, -7px) scale(1.02);
+  }
+  56% {
+    transform: translate(0, -7px) scale(1.02);
+  }
+}
+.fig[data-act='flex'] .move {
+  animation: flexMove 1.6s cubic-bezier(0.3, 1.6, 0.5, 1) infinite;
+}
+@keyframes flexMove {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 10px rgba(79, 216, 230, 0.4)) brightness(1);
+  }
+  30% {
+    transform: scale(1.045);
+    filter: drop-shadow(0 0 18px rgba(79, 216, 230, 0.75)) brightness(1.08);
+  }
+  60% {
+    transform: scale(1.01);
+  }
+}
+.fig[data-act='thumbs'] .move {
+  animation: thumbsMove 1.4s cubic-bezier(0.3, 1.5, 0.5, 1) infinite;
+}
+@keyframes thumbsMove {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  25% {
+    transform: translateY(-14px) rotate(-2.5deg);
+  }
+  45% {
+    transform: translateY(0) rotate(0) scale(1.02, 0.98);
+  }
+  55% {
+    transform: translateY(-4px);
+  }
+}
+.fig[data-act='rest'] .move {
+  animation: restMove 5s ease-in-out infinite;
+}
+@keyframes restMove {
+  0%,
+  100% {
+    transform: translateY(3px) rotate(-1.6deg);
+  }
+  50% {
+    transform: translateY(6px) rotate(1.6deg);
+  }
+}
+
+/* frame swaps, timed to the motion above */
+.blink {
+  animation: blink 4.2s linear infinite;
+}
+@keyframes blink {
+  0%,
+  93.9% {
+    opacity: 0;
+  }
+  94%,
+  97.4% {
+    opacity: 1;
+  }
+  97.5%,
+  100% {
+    opacity: 0;
+  }
+}
+.curlDown {
+  animation: curlDown 2.2s linear infinite;
+}
+.curlUp {
+  animation: curlUp 2.2s linear infinite;
+}
+@keyframes curlDown {
+  0%,
+  27.9% {
+    opacity: 1;
+  }
+  28%,
+  71.9% {
+    opacity: 0;
+  }
+  72%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes curlUp {
+  0%,
+  27.9% {
+    opacity: 0;
+  }
+  28%,
+  71.9% {
+    opacity: 1;
+  }
+  72%,
+  100% {
+    opacity: 0;
+  }
+}
+.flexA {
+  animation: flexA 1.6s linear infinite;
+}
+.flexB {
+  animation: flexB 1.6s linear infinite;
+}
+@keyframes flexA {
+  0%,
+  17.9% {
+    opacity: 1;
+  }
+  18%,
+  64.9% {
+    opacity: 0;
+  }
+  65%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes flexB {
+  0%,
+  17.9% {
+    opacity: 0;
+  }
+  18%,
+  64.9% {
+    opacity: 1;
+  }
+  65%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* comic effects */
+.speed {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(159, 232, 241, 0), rgba(159, 232, 241, 0.9));
+  animation: speed 0.45s linear infinite;
+}
+@keyframes speed {
+  0% {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-50px);
+    opacity: 0;
+  }
+}
+.drop {
+  width: 11px;
+  height: 15px;
+  background: #bfe9f0;
+  border: 2px solid #1d1f22;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  animation: drop 2.2s ease-in infinite;
+}
+@keyframes drop {
+  0%,
+  35% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(42px);
+    opacity: 0;
+  }
+}
+.spark {
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation: spark 1.6s ease-in-out infinite;
+}
+@keyframes spark {
+  0%,
+  100% {
+    transform: scale(0) rotate(0);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1.1) rotate(45deg);
+    opacity: 1;
+  }
+  60% {
+    transform: scale(0.6) rotate(90deg);
+    opacity: 0.6;
+  }
+}
+.zz {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: #9fe8f1;
+  text-shadow: 0 0 8px rgba(79, 216, 230, 0.6);
+  animation: zz 3s ease-in infinite;
+}
+@keyframes zz {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(18px, -40px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .move,
+  .popping,
+  .speed,
+  .drop,
+  .spark,
+  .zz,
+  .live,
+  .blink,
+  .curlUp,
+  .flexB {
+    animation: none !important;
+  }
+  .blink,
+  .curlUp,
+  .flexB {
+    opacity: 0;
+  }
+}
