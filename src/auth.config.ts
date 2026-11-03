@@ -53,6 +53,11 @@ export const authConfig = {
       if (account?.provider === 'google' && profile?.email_verified === false) return false;
       return allowed(profile?.email ?? user?.email);
     },
+    // the database user id, so settings can be stored per user
+    session({ session, token }) {
+      if (token.sub) session.user.id = token.sub;
+      return session;
+    },
     // Used by middleware: pages redirect to /login, API routes get a 401
     authorized({ auth, request }) {
       if (auth?.user) return true;

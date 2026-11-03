@@ -20,20 +20,32 @@ export interface CardioDay {
   long: boolean;
 }
 
-/** One calendar day. Strength and body come from Hevy; the rest are labelled samples until those sources connect. */
+/**
+ * One calendar day. Strength comes from Hevy, body from Hevy and Apple Health. Recovery, steps and
+ * nutrition come from Apple Health once it delivers them, and are labelled samples until then.
+ * A null means a connected source had nothing for that day, so it's left out of averages.
+ */
 export interface DayRow {
   date: string; // YYYY-MM-DD (UTC)
   strength: StrengthDay | null;
-  weightKg: number | null; // latest Hevy weigh-in on or before this day
+  weightKg: number | null; // latest weigh-in on or before this day
   bodyFat: number | null;
-  // sample sources
   cardio: CardioDay | null;
-  sleepH: number;
-  hrv: number;
-  kcal: number;
-  protein: number;
-  carbs: number;
-  fat: number;
+  sleepH: number | null;
+  hrv: number | null;
+  steps: number | null;
+  kcal: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+}
+
+/** Which areas show real data rather than samples */
+export interface Live {
+  sleep: boolean;
+  hrv: boolean;
+  steps: boolean;
+  nutrition: boolean;
 }
 
 export interface SourceStatus {
@@ -50,6 +62,7 @@ export interface DashboardPayload {
   hevyMock: boolean;
   lastSync: string | null;
   sources: SourceStatus[];
+  live: Live;
   days: DayRow[];
   lifts: Record<Lift, LiftPoint[]>;
   prs: PrEvent[];
