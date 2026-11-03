@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { getDb } from '@/db';
 import { HevyClient, HevyError } from '@/lib/hevy/client';
 import { syncHevy } from '@/lib/sync/hevy';
@@ -7,17 +8,18 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Vercel Cron calls GET with "Authorization: Bearer $CRON_SECRET".
-// The dashboard's "Sync now" button calls POST; once deployed, set SYNC_SECRET and send it as x-sync-secret.
-function authorized(req: Request): boolean {
-  const auth = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`) return true;
+// The dashboard's "Sync now" button calls POST with the signed-in session.
+// Scripts can send SYNC_SECRET as x-sync-secret.
+async function authorized(req: Request): Promise<boolean> {
+  const header = req.headers.get('authorization');
+  if (process.env.CRON_SECRET && header === `Bearer ${process.env.CRON_SECRET}`) return true;
   const secret = process.env.SYNC_SECRET;
-  if (!secret) return process.env.NODE_ENV !== 'production';
-  return req.headers.get('x-sync-secret') === secret;
+  if (secret && req.headers.get('x-sync-secret') === secret) return true;
+  return !!(await auth())?.user;
 }
 
 async function run(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: 'Not authorized to run a sync.' }, { status: 401 });
+  if (!(await authorized(req))) return NextResponse.json({ error: 'Not authorized to run a sync.' }, { status: 401 });
   try {
     const result = await syncHevy(await getDb(), HevyClient.fromEnv());
     return NextResponse.json(result);

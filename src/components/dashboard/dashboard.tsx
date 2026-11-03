@@ -11,7 +11,7 @@ import { Segmented } from './ui-bits';
 
 type Range = '7' | '30' | '90';
 
-export function Dashboard({ data }: { data: DashboardPayload }) {
+export function Dashboard({ data, account }: { data: DashboardPayload; account?: React.ReactNode }) {
   const [rangeKey, setRangeKey] = useState<Range>('30');
   const range = Number(rangeKey);
   const { days } = data;
@@ -48,6 +48,7 @@ export function Dashboard({ data }: { data: DashboardPayload }) {
             ]}
           />
           <SyncButton />
+          {account}
         </div>
       </header>
 

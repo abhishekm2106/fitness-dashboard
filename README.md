@@ -1,8 +1,8 @@
 # Master Dashboard
 
 A personal fitness dashboard that pulls your training data into one database and one page.
-Phase 1 (this branch) syncs **Hevy**: workouts, exercises, sets, exercise templates and body measurements.
-Phase 2 brings over the full dashboard UI and the animated avatar.
+It syncs **Hevy** (workouts, exercises, sets, exercise templates and body measurements), shows it all on one dashboard
+with an animated avatar, and sits behind sign-in with an **email code**, **Google** or **Apple**.
 
 ## Run it
 
@@ -12,7 +12,7 @@ cp .env.example .env.local   # HEVY_MOCK=1 is on by default
 npm run dev
 ```
 
-Open http://localhost:3000 and press **Sync now**. With `HEVY_MOCK=1` you get about four months of realistic sample workouts, so everything works before you have a Hevy key.
+Open http://localhost:3000, sign in (see below), and press **Sync now**. With `HEVY_MOCK=1` you get about four months of realistic sample workouts, so everything works before you have a Hevy key.
 
 ## Connect your real Hevy account
 
@@ -23,6 +23,56 @@ Open http://localhost:3000 and press **Sync now**. With `HEVY_MOCK=1` you get ab
 The first sync downloads your whole history. After that, each sync only asks Hevy for changes since the last one
 (`/v1/workouts/events`), so edits and deletions in the app show up here too.
 
+## Sign-in
+
+Every page and API route needs a signed-in user, except `/login` and the sign-in flow itself. Sessions are signed
+cookies (Auth.js, JWT strategy); the database keeps users, their linked Google/Apple logins and pending email codes.
+
+1. Generate the session secret and put it in `.env.local` as `AUTH_SECRET`:
+   `npx auth secret --raw`
+2. List who may sign in: `ALLOWED_EMAILS=you@gmail.com,you@icloud.com`. Locally an empty list lets anyone in;
+   in production an empty list lets nobody in.
+3. Set up any of the methods below. Google's button stays disabled until its two variables are set; Apple's is hidden behind a flag.
+
+### Email code
+
+Enter your email, get a 6-digit code (and a one-tap link in the same email), type it in. Codes only go to
+addresses on the allowlist, expire after 10 minutes, are replaced by a newer code, and stop working after
+5 wrong guesses. Only a hash of each code is stored.
+
+- **Locally** it works with no setup: the code is printed in the terminal running `npm run dev`.
+- **To send real emails**, create a free [Resend](https://resend.com) account and an API key, and set `AUTH_RESEND_KEY`.
+  Without your own domain, Resend can only send to the email you signed up with, which is fine for a private dashboard.
+  To send from your own address, verify your domain in Resend and set `AUTH_EMAIL_FROM`, e.g. `Master Dashboard <login@yourdomain.com>`.
+- In production, email sign-in is offered only once `AUTH_RESEND_KEY` is set.
+
+### Google
+
+1. In the Google Cloud console, open **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   (configure the consent screen first if asked; "External" with yourself as a test user is enough).
+2. Application type **Web application**. Authorized redirect URIs:
+   `http://localhost:3000/api/auth/callback/google` and `https://<your-domain>/api/auth/callback/google`.
+3. Set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`.
+
+### Apple
+
+Needs a paid Apple Developer account. Apple only redirects to HTTPS domains, so Sign in with Apple can't
+be tested on `localhost`; try it on your deployed URL (or an HTTPS tunnel).
+
+The button is behind a feature flag and stays hidden until `ENABLE_APPLE_SIGNIN=true`. Turn it on once the
+steps below are done.
+
+1. **Certificates, Identifiers & Profiles → Identifiers**: create an **App ID** with *Sign in with Apple* enabled.
+2. Create a **Services ID** (this is `AUTH_APPLE_ID`, e.g. `com.yourname.fitness.web`), enable *Sign in with Apple*,
+   and configure it with your domain and the return URL `https://<your-domain>/api/auth/callback/apple`.
+3. **Keys**: create a key with *Sign in with Apple* enabled and download the `.p8` file (you can only download it once).
+4. Set `APPLE_TEAM_ID` (top right of the developer portal), `APPLE_KEY_ID` (the key's ID) and `AUTH_APPLE_ID`, then run
+   `npm run apple-secret -- path/to/AuthKey_XXXXXXXXXX.p8` and set the output as `AUTH_APPLE_SECRET`.
+   It's valid for 6 months; regenerate it before then.
+
+If you choose **Hide My Email** when signing in with Apple, Apple gives the app a `@privaterelay.appleid.com`
+address. Add that address to `ALLOWED_EMAILS`, or share your real email instead.
+
 ## Database
 
 - No `DATABASE_URL`: an embedded Postgres (PGlite) stored in `./.data`. Zero setup, ideal for local work.
@@ -32,8 +82,9 @@ Migrations live in `./drizzle` and run automatically on first connection. After 
 
 ## Deploying (Vercel + Supabase)
 
-Set `HEVY_API_KEY`, `DATABASE_URL`, `SYNC_SECRET` and `CRON_SECRET` in Vercel. `vercel.json` schedules a daily sync at 05:00 UTC
-(Vercel's Hobby plan allows one cron run per day). In production, `POST /api/sync` requires the `x-sync-secret` header.
+Set `HEVY_API_KEY`, `DATABASE_URL`, `CRON_SECRET`, `AUTH_SECRET`, `ALLOWED_EMAILS`, `AUTH_RESEND_KEY` and any Google/Apple variables in Vercel.
+`vercel.json` schedules a daily sync at 05:00 UTC (Vercel's Hobby plan allows one cron run per day).
+`/api/sync` accepts the cron secret, a signed-in session (the **Sync now** button), or `SYNC_SECRET` as the `x-sync-secret` header for scripts.
 
 ## Layout
 
@@ -43,6 +94,13 @@ Set `HEVY_API_KEY`, `DATABASE_URL`, `SYNC_SECRET` and `CRON_SECRET` in Vercel. `
 | `src/lib/hevy/mock.ts` | Stand-in for the Hevy API, same paths and JSON shapes |
 | `src/lib/sync/hevy.ts` | Full backfill on first run, incremental change feed afterwards |
 | `src/lib/metrics.ts` | Weekly totals, main-lift e1RM trends, PRs, avatar inputs |
+| `src/auth.config.ts` | Sign-in settings the middleware can use: Google, Apple, the allowlist, Apple's cross-site cookies |
+| `src/auth.ts` | Adds email codes and database storage on top of `auth.config.ts` |
+| `src/lib/auth/adapter.ts` | Stores users, linked logins and email codes, with the wrong-guess limit |
+| `src/lib/auth/email.ts` | Makes the 6-digit code and sends it through Resend |
+| `src/middleware.ts` | Sends signed-out visitors to `/login`; API routes answer 401 |
+| `src/app/login` | The sign-in page and the code-entry page (`/login/verify`) |
 | `src/app/api/sync` | Runs a sync (Vercel Cron uses GET, the page uses POST) |
 | `src/app/api/dashboard` | Everything the dashboard needs, as JSON |
 | `scripts/sync.ts` | `npm run sync` from the command line |
+| `scripts/apple-secret.ts` | `npm run apple-secret` makes Apple's client secret from your `.p8` key |
